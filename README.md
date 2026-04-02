@@ -9,10 +9,14 @@ The app includes:
 
 - Material 3 UI
 - multiple profiles
-- profile creation with **name, purpose, age, weight, height**
+- profile creation with **name, predefined purpose, birth date, weight unit, and height unit**
 - age-aware insights (infant/toddler vs adult mode)
 - charts for weight and height trends
 - measurement history table
+- persistent local storage with SQLite (`sqflite`)
+- selected profile memory via Shared Preferences
+- optional measurement submission (weight-only, height-only, or both)
+- hamburger menu profile switcher
 
 ## Requirements
 
@@ -33,6 +37,13 @@ The app includes:
    ```bash
    flutter run
    ```
+
+## First launch behavior
+
+- The app starts with an **empty database** (no dummy/default data).
+- On first launch, you are taken directly to registration to create your first profile.
+- Each new profile requires: **name, predefined purpose, birth date**, and supports optional initial weight/height.
+- Data is stored locally in SQLite and persists between app restarts.
 
 ## Build release artifacts
 

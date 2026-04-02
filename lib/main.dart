@@ -3,8 +3,12 @@ import 'dart:math';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:path/path.dart' as p;
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sqflite/sqflite.dart';
 
 void main() {
+  WidgetsFlutterBinding.ensureInitialized();
   runApp(const HealthJourneyApp());
 }
 
@@ -14,30 +18,114 @@ class HealthJourneyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Family Growth Tracker',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        useMaterial3: true,
-        colorSchemeSeed: Colors.teal,
-      ),
-      home: const TrackerDashboard(),
+      title: 'Family Growth Tracker',
+      theme: ThemeData(useMaterial3: true, colorSchemeSeed: Colors.teal),
+      home: const AppBootstrapper(),
+    );
+  }
+}
+
+enum WeightUnit { kg, lbs }
+
+enum HeightUnit { cm, ft }
+
+extension WeightUnitX on WeightUnit {
+  String get label => this == WeightUnit.kg ? 'kg' : 'lbs';
+}
+
+extension HeightUnitX on HeightUnit {
+  String get label => this == HeightUnit.cm ? 'cm' : 'ft';
+}
+
+class UnitConverter {
+  static double fromDisplayWeight(double value, WeightUnit unit) =>
+      unit == WeightUnit.kg ? value : value / 2.2046226218;
+
+  static double toDisplayWeight(double kg, WeightUnit unit) =>
+      unit == WeightUnit.kg ? kg : kg * 2.2046226218;
+
+  static double fromDisplayHeight(double value, HeightUnit unit) =>
+      unit == HeightUnit.cm ? value : value * 30.48;
+
+  static double toDisplayHeight(double cm, HeightUnit unit) =>
+      unit == HeightUnit.cm ? cm : cm / 30.48;
+}
+
+class AppBootstrapper extends StatefulWidget {
+  const AppBootstrapper({super.key});
+
+  @override
+  State<AppBootstrapper> createState() => _AppBootstrapperState();
+}
+
+class _AppBootstrapperState extends State<AppBootstrapper> {
+  bool _loading = true;
+  List<GrowthProfile> _profiles = [];
+  int? _selectedProfileId;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    await ProfileRepository.instance.init();
+    final profiles = await ProfileRepository.instance.fetchProfiles();
+    final selectedId = await ProfileRepository.instance.getSelectedProfileId();
+    setState(() {
+      _profiles = profiles;
+      _selectedProfileId = selectedId;
+      _loading = false;
+    });
+  }
+
+  Future<void> _createProfile(CreateProfileInput input) async {
+    await ProfileRepository.instance.createProfile(input);
+    await _load();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+
+    if (_profiles.isEmpty) {
+      return RegistrationScreen(onCreateProfile: _createProfile);
+    }
+
+    return TrackerDashboard(
+      profiles: _profiles,
+      selectedProfileId: _selectedProfileId,
+      onDataChanged: _load,
+      onSelectProfile: (profileId) async {
+        await ProfileRepository.instance.setSelectedProfileId(profileId);
+        setState(() => _selectedProfileId = profileId);
+      },
+      onCreateProfile: _createProfile,
     );
   }
 }
 
 class GrowthProfile {
-  GrowthProfile({
+  const GrowthProfile({
     required this.id,
     required this.name,
     required this.purpose,
     required this.birthDate,
+    required this.weightUnit,
+    required this.heightUnit,
     required this.entries,
   });
 
-  final String id;
-  String name;
-  String purpose;
-  DateTime birthDate;
+  final int id;
+  final String name;
+  final String purpose;
+  final DateTime birthDate;
+  final WeightUnit weightUnit;
+  final HeightUnit heightUnit;
   final List<MetricEntry> entries;
 
   int get ageInMonths {
@@ -45,109 +133,332 @@ class GrowthProfile {
     return (now.year - birthDate.year) * 12 + now.month - birthDate.month;
   }
 
-  int get ageInYears => ageInMonths ~/ 12;
+  double get ageInYears => ageInMonths / 12;
 
   MetricEntry? get latest => entries.isEmpty ? null : entries.last;
+
+  MetricEntry? get latestWithWeight {
+    for (final entry in entries.reversed) {
+      if (entry.weightKg != null) return entry;
+    }
+    return null;
+  }
+
+  MetricEntry? get latestWithHeight {
+    for (final entry in entries.reversed) {
+      if (entry.heightCm != null) return entry;
+    }
+    return null;
+  }
 }
 
 class MetricEntry {
   const MetricEntry({
+    required this.id,
+    required this.profileId,
     required this.date,
-    required this.weightKg,
-    required this.heightCm,
+    this.weightKg,
+    this.heightCm,
   });
 
+  final int id;
+  final int profileId;
   final DateTime date;
-  final double weightKg;
-  final double heightCm;
+  final double? weightKg;
+  final double? heightCm;
 
-  double get bmi {
-    final heightM = heightCm / 100;
-    return weightKg / (heightM * heightM);
+  double? get bmi {
+    if (weightKg == null || heightCm == null || heightCm == 0) return null;
+    return weightKg! / pow(heightCm! / 100, 2);
   }
 }
 
-class TrackerDashboard extends StatefulWidget {
-  const TrackerDashboard({super.key});
+class CreateProfileInput {
+  const CreateProfileInput({
+    required this.name,
+    required this.purpose,
+    required this.birthDate,
+    required this.weightUnit,
+    required this.heightUnit,
+    this.initialWeight,
+    this.initialHeight,
+  });
 
-  @override
-  State<TrackerDashboard> createState() => _TrackerDashboardState();
+  final String name;
+  final String purpose;
+  final DateTime birthDate;
+  final WeightUnit weightUnit;
+  final HeightUnit heightUnit;
+  final double? initialWeight;
+  final double? initialHeight;
 }
 
-class _TrackerDashboardState extends State<TrackerDashboard> {
-  final List<GrowthProfile> _profiles = [
-    GrowthProfile(
-      id: 'baby_1',
-      name: 'Profile 1 • Baby Emma',
-      purpose: 'Baby development tracking',
-      birthDate: DateTime.now().subtract(const Duration(days: 300)),
-      entries: [
-        MetricEntry(
-          date: DateTime.now().subtract(const Duration(days: 180)),
-          weightKg: 6.7,
-          heightCm: 62,
-        ),
-        MetricEntry(
-          date: DateTime.now().subtract(const Duration(days: 120)),
-          weightKg: 7.9,
-          heightCm: 67,
-        ),
-        MetricEntry(
-          date: DateTime.now().subtract(const Duration(days: 60)),
-          weightKg: 8.8,
-          heightCm: 71,
-        ),
-      ],
-    ),
-    GrowthProfile(
-      id: 'dad_1',
-      name: 'Profile 2 • Father Alex',
-      purpose: 'Weight loss journey',
-      birthDate: DateTime(1989, 4, 5),
-      entries: [
-        MetricEntry(
-          date: DateTime.now().subtract(const Duration(days: 90)),
-          weightKg: 96,
-          heightCm: 178,
-        ),
-        MetricEntry(
-          date: DateTime.now().subtract(const Duration(days: 45)),
-          weightKg: 91,
-          heightCm: 178,
-        ),
-        MetricEntry(
-          date: DateTime.now().subtract(const Duration(days: 7)),
-          weightKg: 88.5,
-          heightCm: 178,
-        ),
-      ],
-    ),
-  ];
+class ProfileRepository {
+  ProfileRepository._();
 
-  int _selectedIndex = 0;
+  static final ProfileRepository instance = ProfileRepository._();
+  static const _selectedProfileKey = 'selected_profile_id';
 
-  GrowthProfile get _selectedProfile => _profiles[_selectedIndex];
+  Database? _db;
+
+  Future<void> init() async {
+    if (_db != null) return;
+    final dbPath = await getDatabasesPath();
+    final fullPath = p.join(dbPath, 'growth_tracker.db');
+
+    _db = await openDatabase(
+      fullPath,
+      version: 2,
+      onCreate: (db, version) async {
+        await _createTables(db);
+      },
+      onUpgrade: (db, oldVersion, newVersion) async {
+        await db.execute('DROP TABLE IF EXISTS entries');
+        await db.execute('DROP TABLE IF EXISTS profiles');
+        await _createTables(db);
+      },
+    );
+  }
+
+  Future<void> _createTables(DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE TABLE profiles(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        purpose TEXT NOT NULL,
+        birth_date TEXT NOT NULL,
+        weight_unit TEXT NOT NULL,
+        height_unit TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+    ''');
+
+    await db.execute('''
+      CREATE TABLE entries(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        profile_id INTEGER NOT NULL,
+        date TEXT NOT NULL,
+        weight_kg REAL,
+        height_cm REAL,
+        FOREIGN KEY(profile_id) REFERENCES profiles(id) ON DELETE CASCADE
+      );
+    ''');
+  }
+
+  Future<List<GrowthProfile>> fetchProfiles() async {
+    final db = _db!;
+    final profilesRaw = await db.query('profiles', orderBy: 'created_at ASC');
+    final entriesRaw = await db.query('entries', orderBy: 'date ASC');
+
+    final groupedEntries = <int, List<MetricEntry>>{};
+    for (final row in entriesRaw) {
+      final entry = MetricEntry(
+        id: row['id'] as int,
+        profileId: row['profile_id'] as int,
+        date: DateTime.parse(row['date'] as String),
+        weightKg: (row['weight_kg'] as num?)?.toDouble(),
+        heightCm: (row['height_cm'] as num?)?.toDouble(),
+      );
+      groupedEntries.putIfAbsent(entry.profileId, () => []).add(entry);
+    }
+
+    return profilesRaw
+        .map(
+          (row) => GrowthProfile(
+            id: row['id'] as int,
+            name: row['name'] as String,
+            purpose: row['purpose'] as String,
+            birthDate: DateTime.parse(row['birth_date'] as String),
+            weightUnit: (row['weight_unit'] as String) == 'lbs' ? WeightUnit.lbs : WeightUnit.kg,
+            heightUnit: (row['height_unit'] as String) == 'ft' ? HeightUnit.ft : HeightUnit.cm,
+            entries: groupedEntries[row['id'] as int] ?? [],
+          ),
+        )
+        .toList();
+  }
+
+  Future<void> createProfile(CreateProfileInput input) async {
+    final db = _db!;
+    await db.transaction((txn) async {
+      final profileId = await txn.insert('profiles', {
+        'name': input.name,
+        'purpose': input.purpose,
+        'birth_date': input.birthDate.toIso8601String(),
+        'weight_unit': input.weightUnit.label,
+        'height_unit': input.heightUnit.label,
+        'created_at': DateTime.now().toIso8601String(),
+      });
+
+      if (input.initialWeight != null || input.initialHeight != null) {
+        await txn.insert('entries', {
+          'profile_id': profileId,
+          'date': DateTime.now().toIso8601String(),
+          'weight_kg': input.initialWeight == null
+              ? null
+              : UnitConverter.fromDisplayWeight(input.initialWeight!, input.weightUnit),
+          'height_cm': input.initialHeight == null
+              ? null
+              : UnitConverter.fromDisplayHeight(input.initialHeight!, input.heightUnit),
+        });
+      }
+
+      await setSelectedProfileId(profileId);
+    });
+  }
+
+  Future<void> addEntry({
+    required int profileId,
+    required DateTime date,
+    required double? weightKg,
+    required double? heightCm,
+  }) async {
+    await _db!.insert('entries', {
+      'profile_id': profileId,
+      'date': date.toIso8601String(),
+      'weight_kg': weightKg,
+      'height_cm': heightCm,
+    });
+  }
+
+  Future<int?> getSelectedProfileId() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getInt(_selectedProfileKey);
+  }
+
+  Future<void> setSelectedProfileId(int id) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_selectedProfileKey, id);
+  }
+}
+
+class RegistrationScreen extends StatelessWidget {
+  const RegistrationScreen({super.key, required this.onCreateProfile});
+
+  final Future<void> Function(CreateProfileInput input) onCreateProfile;
 
   @override
   Widget build(BuildContext context) {
-    final profile = _selectedProfile;
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Family Growth & Weight Tracker'),
+      appBar: AppBar(title: const Text('Create your first profile')),
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 580),
+          child: Card(
+            margin: const EdgeInsets.all(16),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: CreateProfileForm(onSubmit: onCreateProfile),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class TrackerDashboard extends StatelessWidget {
+  const TrackerDashboard({
+    super.key,
+    required this.profiles,
+    required this.selectedProfileId,
+    required this.onSelectProfile,
+    required this.onDataChanged,
+    required this.onCreateProfile,
+  });
+
+  final List<GrowthProfile> profiles;
+  final int? selectedProfileId;
+  final ValueChanged<int> onSelectProfile;
+  final Future<void> Function() onDataChanged;
+  final Future<void> Function(CreateProfileInput input) onCreateProfile;
+
+  GrowthProfile get selectedProfile {
+    if (selectedProfileId == null) return profiles.first;
+    return profiles.firstWhere(
+      (profile) => profile.id == selectedProfileId,
+      orElse: () => profiles.first,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final profile = selectedProfile;
+    return Scaffold(
+      appBar: AppBar(title: Text(profile.name)),
+      drawer: Drawer(
+        child: SafeArea(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Padding(
+                padding: EdgeInsets.all(16),
+                child: Text('Profiles', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+              ),
+              Expanded(
+                child: ListView(
+                  children: [
+                    for (final item in profiles)
+                      ListTile(
+                        title: Text(item.name),
+                        subtitle: Text(item.purpose),
+                        selected: item.id == profile.id,
+                        onTap: () {
+                          onSelectProfile(item.id);
+                          Navigator.pop(context);
+                        },
+                      ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(12),
+                child: FilledButton.icon(
+                  onPressed: () async {
+                    Navigator.pop(context);
+                    await showDialog<void>(
+                      context: context,
+                      builder: (dialogContext) => AlertDialog(
+                        title: const Text('Create profile'),
+                        content: SizedBox(
+                          width: 540,
+                          child: CreateProfileForm(
+                            onSubmit: (input) async {
+                              await onCreateProfile(input);
+                              if (dialogContext.mounted) Navigator.pop(dialogContext);
+                            },
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.person_add),
+                  label: const Text('Add profile'),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () async {
-          final newEntry = await showModalBottomSheet<MetricEntry>(
+          final result = await showModalBottomSheet<AddEntryInput>(
             context: context,
             isScrollControlled: true,
             useSafeArea: true,
-            builder: (context) => AddEntrySheet(profile: profile),
+            builder: (_) => AddEntrySheet(profile: profile),
           );
-          if (newEntry != null) {
-            setState(() {
-              profile.entries.add(newEntry);
-              profile.entries.sort((a, b) => a.date.compareTo(b.date));
-            });
+          if (result != null) {
+            await ProfileRepository.instance.addEntry(
+              profileId: profile.id,
+              date: result.date,
+              weightKg: result.weight == null
+                  ? null
+                  : UnitConverter.fromDisplayWeight(result.weight!, profile.weightUnit),
+              heightCm: result.height == null
+                  ? null
+                  : UnitConverter.fromDisplayHeight(result.height!, profile.heightUnit),
+            );
+            await onDataChanged();
           }
         },
         icon: const Icon(Icons.add),
@@ -156,233 +467,224 @@ class _TrackerDashboardState extends State<TrackerDashboard> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          _ProfilePicker(
-            profiles: _profiles,
-            selectedIndex: _selectedIndex,
-            onProfileChanged: (index) => setState(() => _selectedIndex = index),
-            onAddProfile: _addProfile,
-          ),
+          ProfileOverviewCard(profile: profile),
           const SizedBox(height: 12),
-          _ProfileOverviewCard(profile: profile),
+          AgeBasedInsightCard(profile: profile),
           const SizedBox(height: 12),
-          _AgeBasedInsightCard(profile: profile),
-          const SizedBox(height: 16),
-          _TrendCharts(profile: profile),
-          const SizedBox(height: 16),
-          _EntriesTable(profile: profile),
-          const SizedBox(height: 64),
+          TrendCharts(profile: profile),
+          const SizedBox(height: 12),
+          EntriesTable(profile: profile),
+          const SizedBox(height: 80),
         ],
       ),
     );
   }
-
-  Future<void> _addProfile() async {
-    final formKey = GlobalKey<FormState>();
-    final nameController = TextEditingController();
-    final purposeController = TextEditingController();
-    final ageController = TextEditingController();
-    final weightController = TextEditingController();
-    final heightController = TextEditingController();
-
-    final created = await showDialog<bool>(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('Create profile'),
-          content: Form(
-            key: formKey,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextFormField(
-                  controller: nameController,
-                  decoration: const InputDecoration(
-                    labelText: 'Profile name',
-                    hintText: 'e.g., Baby Lucas',
-                  ),
-                  validator: (value) =>
-                      (value == null || value.trim().isEmpty)
-                          ? 'Name required'
-                          : null,
-                ),
-                const SizedBox(height: 8),
-                TextFormField(
-                  controller: purposeController,
-                  decoration: const InputDecoration(
-                    labelText: 'Purpose',
-                    hintText: 'e.g., Father weight loss journey',
-                  ),
-                  validator: (value) =>
-                      (value == null || value.trim().isEmpty)
-                          ? 'Purpose required'
-                          : null,
-                ),
-                const SizedBox(height: 8),
-                TextFormField(
-                  controller: ageController,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(labelText: 'Age (years)'),
-                  validator: _requiredPositive,
-                ),
-                const SizedBox(height: 8),
-                TextFormField(
-                  controller: weightController,
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  decoration: const InputDecoration(labelText: 'Current weight (kg)'),
-                  validator: _requiredPositive,
-                ),
-                const SizedBox(height: 8),
-                TextFormField(
-                  controller: heightController,
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  decoration: const InputDecoration(labelText: 'Current height (cm)'),
-                  validator: _requiredPositive,
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () {
-                if (formKey.currentState!.validate()) {
-                  Navigator.pop(context, true);
-                }
-              },
-              child: const Text('Create'),
-            ),
-          ],
-        );
-      },
-    );
-
-    if (created == true) {
-      final age = int.parse(ageController.text.trim());
-      final birthDate = DateTime(
-        DateTime.now().year - age,
-        DateTime.now().month,
-        DateTime.now().day,
-      );
-      setState(() {
-        _profiles.add(
-          GrowthProfile(
-            id: 'profile_${_profiles.length + 1}',
-            name: nameController.text.trim(),
-            purpose: purposeController.text.trim(),
-            birthDate: birthDate,
-            entries: [
-              MetricEntry(
-                date: DateTime.now(),
-                weightKg: double.parse(weightController.text.trim()),
-                heightCm: double.parse(heightController.text.trim()),
-              ),
-            ],
-          ),
-        );
-        _selectedIndex = _profiles.length - 1;
-      });
-    }
-  }
-
-  String? _requiredPositive(String? value) {
-    if (value == null || value.trim().isEmpty) {
-      return 'Required';
-    }
-    final parsed = double.tryParse(value);
-    if (parsed == null || parsed <= 0) {
-      return 'Enter a positive value';
-    }
-    return null;
-  }
 }
 
-class _ProfilePicker extends StatelessWidget {
-  const _ProfilePicker({
-    required this.profiles,
-    required this.selectedIndex,
-    required this.onProfileChanged,
-    required this.onAddProfile,
-  });
+class CreateProfileForm extends StatefulWidget {
+  const CreateProfileForm({super.key, required this.onSubmit});
 
-  final List<GrowthProfile> profiles;
-  final int selectedIndex;
-  final ValueChanged<int> onProfileChanged;
-  final VoidCallback onAddProfile;
+  final Future<void> Function(CreateProfileInput input) onSubmit;
+
+  @override
+  State<CreateProfileForm> createState() => _CreateProfileFormState();
+}
+
+class _CreateProfileFormState extends State<CreateProfileForm> {
+  static const _purposeOptions = [
+    'Baby growth and development tracking',
+    'Postpartum recovery progress',
+    'Father/Mother weight loss journey',
+    'General fitness and body composition monitoring',
+    'Teen growth and sports conditioning',
+    'Senior wellness and mobility monitoring',
+    'Medical follow-up (as advised by clinician)',
+  ];
+
+  final _formKey = GlobalKey<FormState>();
+  final _nameController = TextEditingController();
+  final _weightController = TextEditingController();
+  final _heightController = TextEditingController();
+  DateTime _birthDate = DateTime.now();
+  WeightUnit _weightUnit = WeightUnit.kg;
+  HeightUnit _heightUnit = HeightUnit.cm;
+  String _purpose = _purposeOptions.first;
+  bool _saving = false;
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(12),
+    return Form(
+      key: _formKey,
+      child: SingleChildScrollView(
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
           children: [
-            const Text(
-              'Profiles',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            TextFormField(
+              controller: _nameController,
+              decoration: const InputDecoration(labelText: 'Name'),
+              validator: _required,
             ),
             const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
+            DropdownButtonFormField<String>(
+              value: _purpose,
+              decoration: const InputDecoration(labelText: 'Purpose'),
+              items: _purposeOptions
+                  .map((item) => DropdownMenuItem(value: item, child: Text(item)))
+                  .toList(),
+              onChanged: (value) {
+                if (value != null) setState(() => _purpose = value);
+              },
+            ),
+            const SizedBox(height: 8),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Birth date'),
+              subtitle: Text(DateFormat('MM/dd/yy').format(_birthDate)),
+              trailing: const Icon(Icons.calendar_month),
+              onTap: () async {
+                final picked = await showDatePicker(
+                  context: context,
+                  firstDate: DateTime(1900),
+                  lastDate: DateTime.now(),
+                  initialDate: _birthDate,
+                );
+                if (picked != null) setState(() => _birthDate = picked);
+              },
+            ),
+            const SizedBox(height: 8),
+            Row(
               children: [
-                for (var i = 0; i < profiles.length; i++)
-                  ChoiceChip(
-                    label: Text(profiles[i].name),
-                    selected: i == selectedIndex,
-                    onSelected: (_) => onProfileChanged(i),
+                Expanded(
+                  child: SegmentedButton<WeightUnit>(
+                    segments: const [
+                      ButtonSegment(value: WeightUnit.kg, label: Text('kg')),
+                      ButtonSegment(value: WeightUnit.lbs, label: Text('lbs')),
+                    ],
+                    selected: {_weightUnit},
+                    onSelectionChanged: (values) => setState(() => _weightUnit = values.first),
                   ),
-                ActionChip(
-                  avatar: const Icon(Icons.person_add),
-                  label: const Text('New profile'),
-                  onPressed: onAddProfile,
                 ),
               ],
+            ),
+            const SizedBox(height: 8),
+            TextFormField(
+              controller: _weightController,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              decoration: InputDecoration(labelText: 'Initial weight (${_weightUnit.label}) • optional'),
+              validator: _optionalPositive,
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: SegmentedButton<HeightUnit>(
+                    segments: const [
+                      ButtonSegment(value: HeightUnit.cm, label: Text('cm')),
+                      ButtonSegment(value: HeightUnit.ft, label: Text('ft')),
+                    ],
+                    selected: {_heightUnit},
+                    onSelectionChanged: (values) => setState(() => _heightUnit = values.first),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            TextFormField(
+              controller: _heightController,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              decoration: InputDecoration(labelText: 'Initial height (${_heightUnit.label}) • optional'),
+              validator: _optionalPositive,
+            ),
+            const SizedBox(height: 12),
+            FilledButton.icon(
+              onPressed: _saving
+                  ? null
+                  : () async {
+                      if (!_formKey.currentState!.validate()) return;
+                      setState(() => _saving = true);
+                      await widget.onSubmit(
+                        CreateProfileInput(
+                          name: _nameController.text.trim(),
+                          purpose: _purpose,
+                          birthDate: _birthDate,
+                          weightUnit: _weightUnit,
+                          heightUnit: _heightUnit,
+                          initialWeight: _parseOptional(_weightController.text),
+                          initialHeight: _parseOptional(_heightController.text),
+                        ),
+                      );
+                      if (mounted) setState(() => _saving = false);
+                    },
+              icon: _saving
+                  ? const SizedBox.square(dimension: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Icon(Icons.check),
+              label: Text(_saving ? 'Saving...' : 'Save profile'),
             ),
           ],
         ),
       ),
     );
   }
+
+  String? _required(String? value) {
+    if (value == null || value.trim().isEmpty) return 'Required';
+    return null;
+  }
+
+  String? _optionalPositive(String? value) {
+    if (value == null || value.trim().isEmpty) return null;
+    final parsed = double.tryParse(value);
+    if (parsed == null || parsed <= 0) return 'Enter a positive value';
+    return null;
+  }
+
+  double? _parseOptional(String value) {
+    if (value.trim().isEmpty) return null;
+    return double.parse(value.trim());
+  }
 }
 
-class _ProfileOverviewCard extends StatelessWidget {
-  const _ProfileOverviewCard({required this.profile});
+class ProfileOverviewCard extends StatelessWidget {
+  const ProfileOverviewCard({super.key, required this.profile});
 
   final GrowthProfile profile;
 
   @override
   Widget build(BuildContext context) {
-    final latest = profile.latest;
+    final latestWeight = profile.latestWithWeight?.weightKg;
+    final latestHeight = profile.latestWithHeight?.heightCm;
+    final latestBmi = profile.latest?.bmi;
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              profile.name,
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
-            const SizedBox(height: 4),
-            Text('Age: ${profile.ageInYears}y ${profile.ageInMonths % 12}m'),
+            Text(profile.name, style: Theme.of(context).textTheme.titleLarge),
             Text('Purpose: ${profile.purpose}'),
+            Text('Birth date: ${DateFormat('MM/dd/yy').format(profile.birthDate)}'),
+            Text('Age: ${profile.ageInYears.toStringAsFixed(2)} years'),
             const SizedBox(height: 10),
-            if (latest == null)
-              const Text('No measurements yet. Add first entry to view trends.')
-            else
-              Wrap(
-                spacing: 16,
-                runSpacing: 8,
-                children: [
-                  _KpiTile(label: 'Weight', value: '${latest.weightKg.toStringAsFixed(1)} kg'),
-                  _KpiTile(label: 'Height', value: '${latest.heightCm.toStringAsFixed(1)} cm'),
-                  _KpiTile(label: 'BMI', value: latest.bmi.toStringAsFixed(1)),
-                ],
-              ),
+            Wrap(
+              spacing: 16,
+              runSpacing: 8,
+              children: [
+                if (latestWeight != null)
+                  _MetricTile(
+                    label: 'Weight',
+                    value:
+                        '${UnitConverter.toDisplayWeight(latestWeight, profile.weightUnit).toStringAsFixed(1)} ${profile.weightUnit.label}',
+                  ),
+                if (latestHeight != null)
+                  _MetricTile(
+                    label: 'Height',
+                    value:
+                        '${UnitConverter.toDisplayHeight(latestHeight, profile.heightUnit).toStringAsFixed(1)} ${profile.heightUnit.label}',
+                  ),
+                if (latestBmi != null) _MetricTile(label: 'BMI', value: latestBmi.toStringAsFixed(1)),
+              ],
+            ),
           ],
         ),
       ),
@@ -390,8 +692,8 @@ class _ProfileOverviewCard extends StatelessWidget {
   }
 }
 
-class _KpiTile extends StatelessWidget {
-  const _KpiTile({required this.label, required this.value});
+class _MetricTile extends StatelessWidget {
+  const _MetricTile({required this.label, required this.value});
 
   final String label;
   final String value;
@@ -408,180 +710,214 @@ class _KpiTile extends StatelessWidget {
   }
 }
 
-class _AgeBasedInsightCard extends StatelessWidget {
-  const _AgeBasedInsightCard({required this.profile});
+class AgeBasedInsightCard extends StatelessWidget {
+  const AgeBasedInsightCard({super.key, required this.profile});
 
   final GrowthProfile profile;
 
   @override
   Widget build(BuildContext context) {
+    final ageInYears = profile.ageInYears;
     final latest = profile.latest;
-    final insight = _buildInsight(profile, latest);
+
+    final text = ageInYears < 1
+        ? 'Baby development mode: focus on consistent height/weight progression over time and percentile-like trends instead of adult BMI targets.'
+        : latest?.bmi == null
+            ? 'Add both weight and height in at least one entry to compute BMI and richer insights.'
+            : 'Current BMI is ${latest!.bmi!.toStringAsFixed(1)}. Keep gradual and consistent progress.';
+
     return Card(
       color: Theme.of(context).colorScheme.secondaryContainer,
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Row(
           children: [
-            const Icon(Icons.auto_graph),
-            const SizedBox(width: 12),
-            Expanded(child: Text(insight)),
+            const Icon(Icons.child_care),
+            const SizedBox(width: 8),
+            Expanded(child: Text(text)),
           ],
         ),
       ),
     );
   }
-
-  String _buildInsight(GrowthProfile profile, MetricEntry? latest) {
-    if (latest == null) {
-      return 'Add measurements to generate age-based recommendations.';
-    }
-    if (profile.ageInYears < 2) {
-      return 'Infant/toddler mode: prioritize steady growth curves in weight and height rather than BMI targets.';
-    }
-    final bmi = latest.bmi;
-    final status = switch (bmi) {
-      < 18.5 => 'under the adult healthy range',
-      < 25 => 'in the adult healthy range',
-      < 30 => 'in the overweight range',
-      _ => 'in the obesity range',
-    };
-    return 'Adult mode: current BMI is ${bmi.toStringAsFixed(1)}, which is $status. Track gradual changes week-to-week.';
-  }
 }
 
-class _TrendCharts extends StatelessWidget {
-  const _TrendCharts({required this.profile});
+class TrendCharts extends StatelessWidget {
+  const TrendCharts({super.key, required this.profile});
 
   final GrowthProfile profile;
 
   @override
   Widget build(BuildContext context) {
-    if (profile.entries.length < 2) {
-      return const Card(
-        child: Padding(
-          padding: EdgeInsets.all(16),
-          child: Text('At least 2 entries are needed for charts.'),
-        ),
-      );
+    final weightPoints = <MetricEntry>[];
+    final heightPoints = <MetricEntry>[];
+    for (final entry in profile.entries) {
+      if (entry.weightKg != null) weightPoints.add(entry);
+      if (entry.heightCm != null) heightPoints.add(entry);
     }
 
     return Column(
       children: [
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: SizedBox(height: 220, child: _WeightLineChart(profile: profile)),
+        if (weightPoints.length >= 2) _WeightChartCard(profile: profile, entries: weightPoints),
+        if (weightPoints.length >= 2 && heightPoints.length >= 2) const SizedBox(height: 12),
+        if (heightPoints.length >= 2) _HeightChartCard(profile: profile, entries: heightPoints),
+        if (weightPoints.length < 2 && heightPoints.length < 2)
+          const Card(
+            child: Padding(
+              padding: EdgeInsets.all(16),
+              child: Text('Add at least 2 weight or 2 height entries to view charts.'),
+            ),
           ),
-        ),
-        const SizedBox(height: 12),
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: SizedBox(height: 220, child: _HeightBarChart(profile: profile)),
-          ),
-        ),
       ],
     );
   }
 }
 
-class _WeightLineChart extends StatelessWidget {
-  const _WeightLineChart({required this.profile});
+class _WeightChartCard extends StatelessWidget {
+  const _WeightChartCard({required this.profile, required this.entries});
 
   final GrowthProfile profile;
+  final List<MetricEntry> entries;
 
   @override
   Widget build(BuildContext context) {
-    final sorted = [...profile.entries]..sort((a, b) => a.date.compareTo(b.date));
-    final minWeight = sorted.map((e) => e.weightKg).reduce(min) - 2;
-    final maxWeight = sorted.map((e) => e.weightKg).reduce(max) + 2;
+    final values = entries.map((e) => UnitConverter.toDisplayWeight(e.weightKg!, profile.weightUnit)).toList();
+    final minValue = values.reduce(min);
+    final maxValue = values.reduce(max);
+    final midValue = (minValue + maxValue) / 2;
+    final chartWidth = max(640.0, entries.length * 90.0);
 
-    return LineChart(
-      LineChartData(
-        minY: minWeight,
-        maxY: maxWeight,
-        gridData: const FlGridData(show: true),
-        titlesData: FlTitlesData(
-          leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: true)),
-          bottomTitles: AxisTitles(
-            sideTitles: SideTitles(
-              showTitles: true,
-              interval: 1,
-              getTitlesWidget: (value, meta) {
-                final index = value.toInt();
-                if (index < 0 || index >= sorted.length) {
-                  return const SizedBox.shrink();
-                }
-                return Text(DateFormat.Md().format(sorted[index].date));
-              },
-            ),
-          ),
-        ),
-        lineBarsData: [
-          LineChartBarData(
-            isCurved: true,
-            color: Theme.of(context).colorScheme.primary,
-            spots: [
-              for (var i = 0; i < sorted.length; i++)
-                FlSpot(i.toDouble(), sorted[i].weightKg),
-            ],
-            barWidth: 3,
-            dotData: const FlDotData(show: true),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _HeightBarChart extends StatelessWidget {
-  const _HeightBarChart({required this.profile});
-
-  final GrowthProfile profile;
-
-  @override
-  Widget build(BuildContext context) {
-    final sorted = [...profile.entries]..sort((a, b) => a.date.compareTo(b.date));
-
-    return BarChart(
-      BarChartData(
-        barGroups: [
-          for (var i = 0; i < sorted.length; i++)
-            BarChartGroupData(
-              x: i,
-              barRods: [
-                BarChartRodData(
-                  toY: sorted[i].heightCm,
-                  width: 16,
-                  borderRadius: BorderRadius.circular(4),
-                  color: Theme.of(context).colorScheme.tertiary,
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Weight Trend (${profile.weightUnit.label})', style: Theme.of(context).textTheme.titleMedium),
+            Text('Min: ${minValue.toStringAsFixed(1)}  Mid: ${midValue.toStringAsFixed(1)}  Max: ${maxValue.toStringAsFixed(1)}'),
+            const SizedBox(height: 8),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: SizedBox(
+                width: chartWidth,
+                height: 260,
+                child: LineChart(
+                  LineChartData(
+                    minY: minValue - 1,
+                    maxY: maxValue + 1,
+                    gridData: const FlGridData(show: true),
+                    titlesData: FlTitlesData(
+                      leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                      rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                      topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                      bottomTitles: AxisTitles(
+                        sideTitles: SideTitles(
+                          showTitles: true,
+                          interval: 1,
+                          getTitlesWidget: (value, _) {
+                            final index = value.toInt();
+                            if (index < 0 || index >= entries.length) return const SizedBox.shrink();
+                            return Text(DateFormat('MM/dd/yy').format(entries[index].date));
+                          },
+                        ),
+                      ),
+                    ),
+                    lineBarsData: [
+                      LineChartBarData(
+                        isCurved: true,
+                        barWidth: 3,
+                        color: Theme.of(context).colorScheme.primary,
+                        spots: [
+                          for (var i = 0; i < entries.length; i++)
+                            FlSpot(i.toDouble(), UnitConverter.toDisplayWeight(entries[i].weightKg!, profile.weightUnit)),
+                        ],
+                        dotData: const FlDotData(show: true),
+                      ),
+                    ],
+                  ),
                 ),
-              ],
+              ),
             ),
-        ],
-        titlesData: FlTitlesData(
-          leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: true)),
-          bottomTitles: AxisTitles(
-            sideTitles: SideTitles(
-              showTitles: true,
-              getTitlesWidget: (value, meta) {
-                final index = value.toInt();
-                if (index < 0 || index >= sorted.length) {
-                  return const SizedBox.shrink();
-                }
-                return Text(DateFormat.Md().format(sorted[index].date));
-              },
-            ),
-          ),
+          ],
         ),
       ),
     );
   }
 }
 
-class _EntriesTable extends StatelessWidget {
-  const _EntriesTable({required this.profile});
+class _HeightChartCard extends StatelessWidget {
+  const _HeightChartCard({required this.profile, required this.entries});
+
+  final GrowthProfile profile;
+  final List<MetricEntry> entries;
+
+  @override
+  Widget build(BuildContext context) {
+    final values = entries.map((e) => UnitConverter.toDisplayHeight(e.heightCm!, profile.heightUnit)).toList();
+    final minValue = values.reduce(min);
+    final maxValue = values.reduce(max);
+    final midValue = (minValue + maxValue) / 2;
+    final chartWidth = max(640.0, entries.length * 90.0);
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Height Trend (${profile.heightUnit.label})', style: Theme.of(context).textTheme.titleMedium),
+            Text('Min: ${minValue.toStringAsFixed(1)}  Mid: ${midValue.toStringAsFixed(1)}  Max: ${maxValue.toStringAsFixed(1)}'),
+            const SizedBox(height: 8),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: SizedBox(
+                width: chartWidth,
+                height: 260,
+                child: BarChart(
+                  BarChartData(
+                    gridData: const FlGridData(show: true),
+                    titlesData: FlTitlesData(
+                      leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                      rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                      topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                      bottomTitles: AxisTitles(
+                        sideTitles: SideTitles(
+                          showTitles: true,
+                          getTitlesWidget: (value, _) {
+                            final index = value.toInt();
+                            if (index < 0 || index >= entries.length) return const SizedBox.shrink();
+                            return Text(DateFormat('MM/dd/yy').format(entries[index].date));
+                          },
+                        ),
+                      ),
+                    ),
+                    barGroups: [
+                      for (var i = 0; i < entries.length; i++)
+                        BarChartGroupData(
+                          x: i,
+                          barRods: [
+                            BarChartRodData(
+                              toY: UnitConverter.toDisplayHeight(entries[i].heightCm!, profile.heightUnit),
+                              width: 16,
+                              borderRadius: BorderRadius.circular(4),
+                              color: Theme.of(context).colorScheme.tertiary,
+                            ),
+                          ],
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class EntriesTable extends StatelessWidget {
+  const EntriesTable({super.key, required this.profile});
 
   final GrowthProfile profile;
 
@@ -591,39 +927,51 @@ class _EntriesTable extends StatelessWidget {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('History', style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 8),
-            if (sorted.isEmpty)
-              const Text('No measurements yet.')
-            else
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: DataTable(
-                  columns: const [
-                    DataColumn(label: Text('Date')),
-                    DataColumn(label: Text('Weight (kg)')),
-                    DataColumn(label: Text('Height (cm)')),
-                    DataColumn(label: Text('BMI')),
-                  ],
-                  rows: [
-                    for (final entry in sorted)
-                      DataRow(cells: [
-                        DataCell(Text(DateFormat.yMMMd().format(entry.date))),
-                        DataCell(Text(entry.weightKg.toStringAsFixed(1))),
-                        DataCell(Text(entry.heightCm.toStringAsFixed(1))),
-                        DataCell(Text(entry.bmi.toStringAsFixed(1))),
-                      ]),
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: DataTable(
+            columns: [
+              const DataColumn(label: Text('Date')),
+              DataColumn(label: Text('Weight (${profile.weightUnit.label})')),
+              DataColumn(label: Text('Height (${profile.heightUnit.label})')),
+              const DataColumn(label: Text('BMI')),
+            ],
+            rows: [
+              for (final entry in sorted)
+                DataRow(
+                  cells: [
+                    DataCell(Text(DateFormat('MM/dd/yy').format(entry.date))),
+                    DataCell(
+                      Text(
+                        entry.weightKg == null
+                            ? '-'
+                            : UnitConverter.toDisplayWeight(entry.weightKg!, profile.weightUnit).toStringAsFixed(1),
+                      ),
+                    ),
+                    DataCell(
+                      Text(
+                        entry.heightCm == null
+                            ? '-'
+                            : UnitConverter.toDisplayHeight(entry.heightCm!, profile.heightUnit).toStringAsFixed(1),
+                      ),
+                    ),
+                    DataCell(Text(entry.bmi == null ? '-' : entry.bmi!.toStringAsFixed(1))),
                   ],
                 ),
-              ),
-          ],
+            ],
+          ),
         ),
       ),
     );
   }
+}
+
+class AddEntryInput {
+  const AddEntryInput({required this.date, this.weight, this.height});
+
+  final DateTime date;
+  final double? weight;
+  final double? height;
 }
 
 class AddEntrySheet extends StatefulWidget {
@@ -644,63 +992,56 @@ class _AddEntrySheetState extends State<AddEntrySheet> {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: EdgeInsets.fromLTRB(
-        16,
-        16,
-        16,
-        16 + MediaQuery.of(context).viewInsets.bottom,
-      ),
+      padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + MediaQuery.of(context).viewInsets.bottom),
       child: Form(
         key: _formKey,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Text('Add measurement for ${widget.profile.name}'),
-            const SizedBox(height: 12),
+            const SizedBox(height: 8),
             TextFormField(
               controller: _weightController,
               keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              decoration: const InputDecoration(labelText: 'Weight (kg)'),
-              validator: _requiredPositive,
+              decoration: InputDecoration(labelText: 'Weight (${widget.profile.weightUnit.label}) • optional'),
+              validator: _optionalPositive,
             ),
             const SizedBox(height: 8),
             TextFormField(
               controller: _heightController,
               keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              decoration: const InputDecoration(labelText: 'Height (cm)'),
-              validator: _requiredPositive,
+              decoration: InputDecoration(labelText: 'Height (${widget.profile.heightUnit.label}) • optional'),
+              validator: _optionalPositive,
             ),
-            const SizedBox(height: 8),
             ListTile(
               contentPadding: EdgeInsets.zero,
               title: const Text('Measurement date'),
-              subtitle: Text(DateFormat.yMMMd().format(_selectedDate)),
+              subtitle: Text(DateFormat('MM/dd/yy').format(_selectedDate)),
               trailing: const Icon(Icons.calendar_month),
               onTap: () async {
                 final picked = await showDatePicker(
                   context: context,
-                  firstDate: widget.profile.birthDate,
+                  firstDate: DateTime(1900),
                   lastDate: DateTime.now(),
                   initialDate: _selectedDate,
                 );
-                if (picked != null) {
-                  setState(() => _selectedDate = picked);
-                }
+                if (picked != null) setState(() => _selectedDate = picked);
               },
             ),
-            const SizedBox(height: 8),
             FilledButton.icon(
               onPressed: () {
-                if (!_formKey.currentState!.validate()) {
+                if (!_formKey.currentState!.validate()) return;
+                final weight = _parseOptional(_weightController.text);
+                final height = _parseOptional(_heightController.text);
+                if (weight == null && height == null) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Provide at least weight or height.')),
+                  );
                   return;
                 }
                 Navigator.pop(
                   context,
-                  MetricEntry(
-                    date: _selectedDate,
-                    weightKg: double.parse(_weightController.text),
-                    heightCm: double.parse(_heightController.text),
-                  ),
+                  AddEntryInput(date: _selectedDate, weight: weight, height: height),
                 );
               },
               icon: const Icon(Icons.save),
@@ -712,14 +1053,15 @@ class _AddEntrySheetState extends State<AddEntrySheet> {
     );
   }
 
-  String? _requiredPositive(String? value) {
-    if (value == null || value.trim().isEmpty) {
-      return 'Required';
-    }
+  String? _optionalPositive(String? value) {
+    if (value == null || value.trim().isEmpty) return null;
     final parsed = double.tryParse(value);
-    if (parsed == null || parsed <= 0) {
-      return 'Enter a positive value';
-    }
+    if (parsed == null || parsed <= 0) return 'Enter a positive value';
     return null;
+  }
+
+  double? _parseOptional(String value) {
+    if (value.trim().isEmpty) return null;
+    return double.parse(value.trim());
   }
 }
