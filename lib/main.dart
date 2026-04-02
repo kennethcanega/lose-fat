@@ -907,6 +907,51 @@ class _MetricTile extends StatelessWidget {
   }
 }
 
+class AdultBmiInsight {
+  const AdultBmiInsight({
+    required this.label,
+    required this.color,
+    required this.weightToLoseKg,
+  });
+
+  final String label;
+  final Color color;
+  final double weightToLoseKg;
+}
+
+AdultBmiInsight classifyAdultBmi(MetricEntry entry) {
+  final bmi = entry.bmi;
+  if (bmi == null) {
+    return const AdultBmiInsight(label: 'Not available', color: Colors.blueGrey, weightToLoseKg: 0);
+  }
+
+  if (bmi < 18.5) {
+    return const AdultBmiInsight(label: 'Underweight', color: Colors.lightBlue, weightToLoseKg: 0);
+  }
+  if (bmi < 25) {
+    return const AdultBmiInsight(label: 'Normal', color: Colors.green, weightToLoseKg: 0);
+  }
+  if (bmi < 30) {
+    return AdultBmiInsight(
+      label: 'Overweight',
+      color: Colors.orange,
+      weightToLoseKg: _weightToReachBmiUpperNormal(entry),
+    );
+  }
+  return AdultBmiInsight(
+    label: 'Obese',
+    color: Colors.red,
+    weightToLoseKg: _weightToReachBmiUpperNormal(entry),
+  );
+}
+
+double _weightToReachBmiUpperNormal(MetricEntry entry) {
+  if (entry.weightKg == null || entry.heightCm == null || entry.heightCm == 0) return 0;
+  final heightM = entry.heightCm! / 100;
+  final targetWeight = 24.9 * heightM * heightM;
+  return max(0, entry.weightKg! - targetWeight);
+}
+
 class AgeBasedInsightCard extends StatelessWidget {
   const AgeBasedInsightCard({super.key, required this.profile});
 
@@ -916,11 +961,18 @@ class AgeBasedInsightCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final ageInYears = profile.ageInYears;
     final isBabyProfile = ageInYears < 2;
+    final isAdultProfile = ageInYears >= 18;
     final latest = profile.latest;
     final babySummary = BabyGrowthReference.summaryFor(profile);
+    final adultInsight = (isAdultProfile && latest?.bmi != null) ? classifyAdultBmi(latest!) : null;
+    final loseWeightDisplay = latest == null
+        ? null
+        : UnitConverter.toDisplayWeight(adultInsight?.weightToLoseKg ?? 0, profile.weightUnit);
 
     final text = ageInYears < 1
         ? 'Baby development mode: compare growth against reference trajectory lines instead of adult BMI targets.'
+        : adultInsight != null
+            ? 'Adult BMI: ${latest!.bmi!.toStringAsFixed(1)} • ${adultInsight.label}'
         : latest?.bmi == null
             ? 'Add both weight and height in at least one entry to compute BMI and richer insights.'
             : 'Current BMI is ${latest!.bmi!.toStringAsFixed(1)}. Keep gradual and consistent progress.';
@@ -939,6 +991,27 @@ class AgeBasedInsightCard extends StatelessWidget {
                 Expanded(child: Text(text)),
               ],
             ),
+            if (adultInsight != null) ...[
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  Chip(
+                    avatar: Icon(Icons.circle, size: 12, color: adultInsight.color),
+                    label: Text(adultInsight.label),
+                  ),
+                  Chip(
+                    label: Text(
+                      loseWeightDisplay == null || loseWeightDisplay <= 0
+                          ? 'Weight to lose: 0 ${profile.weightUnit.label}'
+                          : 'Weight to lose: ${loseWeightDisplay.toStringAsFixed(1)} ${profile.weightUnit.label}',
+                    ),
+                  ),
+                ],
+              ),
+            ],
             if (babySummary != null) ...[
               const SizedBox(height: 12),
               const Divider(height: 1),
@@ -947,18 +1020,29 @@ class AgeBasedInsightCard extends StatelessWidget {
                 'Baby growth summary (${babySummary.ageLabel})',
                 style: Theme.of(context).textTheme.titleSmall,
               ),
-              const SizedBox(height: 4),
-              Text(
-                'Average weight: ${_formatNumber(babySummary.avgWeightKg)} kg '
-                '(${_formatNumber(UnitConverter.toDisplayWeight(babySummary.avgWeightKg, profile.weightUnit))} ${profile.weightUnit.label})',
-              ),
-              Text(
-                'Average height: ${_formatNumber(babySummary.avgHeightCm)} cm '
-                '(${_formatNumber(UnitConverter.toDisplayHeight(babySummary.avgHeightCm, profile.heightUnit))} ${profile.heightUnit.label})',
-              ),
-              Text(
-                'Normal range: weight ${_formatRangeKg(babySummary.minWeightKg, babySummary.maxWeightKg, profile.weightUnit)} '
-                'and height ${_formatRangeCm(babySummary.minHeightCm, babySummary.maxHeightCm, profile.heightUnit)}.',
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: _SummaryStatCard(
+                      title: 'Weight reference',
+                      avgText:
+                          '${_formatNumber(UnitConverter.toDisplayWeight(babySummary.avgWeightKg, profile.weightUnit))} ${profile.weightUnit.label}',
+                      rangeText:
+                          _formatRangeKg(babySummary.minWeightKg, babySummary.maxWeightKg, profile.weightUnit),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _SummaryStatCard(
+                      title: 'Height reference',
+                      avgText:
+                          '${_formatNumber(UnitConverter.toDisplayHeight(babySummary.avgHeightCm, profile.heightUnit))} ${profile.heightUnit.label}',
+                      rangeText:
+                          _formatRangeCm(babySummary.minHeightCm, babySummary.maxHeightCm, profile.heightUnit),
+                    ),
+                  ),
+                ],
               ),
             ],
           ],
@@ -980,6 +1064,35 @@ class AgeBasedInsightCard extends StatelessWidget {
   }
 
   String _formatNumber(double value) => value.toStringAsFixed(1);
+}
+
+class _SummaryStatCard extends StatelessWidget {
+  const _SummaryStatCard({required this.title, required this.avgText, required this.rangeText});
+
+  final String title;
+  final String avgText;
+  final String rangeText;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: Theme.of(context).textTheme.labelLarge),
+          const SizedBox(height: 6),
+          Text('Average: $avgText'),
+          Text('Range: $rangeText'),
+        ],
+      ),
+    );
+  }
 }
 
 class TrendCharts extends StatelessWidget {
@@ -1021,7 +1134,13 @@ class _WeightChartCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isBabyProfile = profile.ageInYears < 2;
+    final ageMonths = [
+      for (final entry in entries) AgeDisplayFormatter.monthsBetween(profile.birthDate, entry.date).toDouble(),
+    ];
     final values = entries.map((e) => UnitConverter.toDisplayWeight(e.weightKg!, profile.weightUnit)).toList();
+    final guidanceTarget = _referenceLine(ageMonths, profile, GrowthBand.median);
+    final guidanceLow = _referenceLine(ageMonths, profile, GrowthBand.lowerBound);
     final minValue = values.reduce(min);
     final maxValue = values.reduce(max);
     final midValue = (minValue + maxValue) / 2;
@@ -1087,16 +1206,54 @@ class _WeightChartCard extends StatelessWidget {
                           ],
                           dotData: const FlDotData(show: true),
                         ),
+                        if (isBabyProfile)
+                          LineChartBarData(
+                            isCurved: true,
+                            barWidth: 2,
+                            color: Colors.green.shade700,
+                            spots: guidanceTarget,
+                            dotData: const FlDotData(show: false),
+                            dashArray: const [7, 4],
+                          ),
+                        if (isBabyProfile)
+                          LineChartBarData(
+                            isCurved: true,
+                            barWidth: 2,
+                            color: Colors.red.shade700,
+                            spots: guidanceLow,
+                            dotData: const FlDotData(show: false),
+                            dashArray: const [7, 4],
+                          ),
                       ],
                     ),
                   ),
                 ),
               ),
             ),
+            if (isBabyProfile)
+              const Padding(
+                padding: EdgeInsets.only(top: 8),
+                child: Text(
+                  'Green = WHO median weight-for-age reference; Red = WHO lower-bound reference (about 3rd percentile).',
+                ),
+              ),
           ],
         ),
       ),
     );
+  }
+
+  List<FlSpot> _referenceLine(List<double> ageMonths, GrowthProfile profile, GrowthBand band) {
+    return [
+      for (var i = 0; i < ageMonths.length; i++)
+        FlSpot(
+          i.toDouble(),
+          UnitConverter.toDisplayWeight(
+            BabyGrowthReference.referenceWeightKgForAge(ageMonths[i], band: band),
+            profile.weightUnit,
+          ),
+        ),
+    ];
   }
 }
 
@@ -1115,8 +1272,8 @@ class _HeightChartCard extends StatelessWidget {
     final values = entries.map((e) => UnitConverter.toDisplayHeight(e.heightCm!, profile.heightUnit)).toList();
     final guidanceTarget = _referenceLine(ageMonths, profile, GrowthBand.median);
     final guidanceLow = _referenceLine(ageMonths, profile, GrowthBand.lowerBound);
-    final minValue = [...values, ...guidanceLow.map((e) => e.y)].reduce(min);
-    final maxValue = [...values, ...guidanceTarget.map((e) => e.y)].reduce(max);
+    final minValue = values.reduce(min);
+    final maxValue = values.reduce(max);
     final midValue = (minValue + maxValue) / 2;
     final chartWidth = max(680.0, entries.length * 90.0);
 
@@ -1774,6 +1931,41 @@ class BabyGrowthReference {
           return snapshot.avgHeightCm;
         case GrowthBand.upperBound:
           return snapshot.maxHeightCm;
+      }
+    }
+
+    final lowerSnapshot = _snapshots[lowerMonth]!;
+    final upperSnapshot = _snapshots[upperMonth]!;
+    if (lowerMonth == upperMonth) return valueFor(lowerSnapshot);
+    final t = (clampedMonth - lowerMonth) / (upperMonth - lowerMonth);
+    final lowerValue = valueFor(lowerSnapshot);
+    final upperValue = valueFor(upperSnapshot);
+    return lowerValue + (upperValue - lowerValue) * t;
+  }
+
+  static double referenceWeightKgForAge(double ageInMonths, {required GrowthBand band}) {
+    if (_snapshots.isEmpty) return 0;
+    final keys = _snapshots.keys.toList()..sort();
+    final clampedMonth = ageInMonths.clamp(keys.first.toDouble(), keys.last.toDouble());
+    var lowerMonth = keys.first;
+    var upperMonth = keys.last;
+    for (var i = 0; i < keys.length; i++) {
+      final key = keys[i];
+      if (key <= clampedMonth) lowerMonth = key;
+      if (key >= clampedMonth) {
+        upperMonth = key;
+        break;
+      }
+    }
+
+    double valueFor(BabyGrowthSnapshot snapshot) {
+      switch (band) {
+        case GrowthBand.lowerBound:
+          return snapshot.minWeightKg;
+        case GrowthBand.median:
+          return snapshot.avgWeightKg;
+        case GrowthBand.upperBound:
+          return snapshot.maxWeightKg;
       }
     }
 
