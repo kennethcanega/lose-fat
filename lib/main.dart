@@ -142,7 +142,7 @@ class GrowthProfile {
 
   int get ageInMonths {
     final now = DateTime.now();
-    return (now.year - birthDate.year) * 12 + now.month - birthDate.month;
+    return AgeDisplayFormatter.monthsBetween(birthDate, now);
   }
 
   double get ageInYears => ageInMonths / 12;
@@ -662,6 +662,10 @@ class TrackerDashboard extends StatelessWidget {
           TrendCharts(profile: profile),
           const SizedBox(height: 12),
           EntriesTable(profile: profile, onDataChanged: onDataChanged),
+          if (profile.ageInMonths <= 12) ...[
+            const SizedBox(height: 12),
+            BabyDevelopmentProgressCard(profile: profile),
+          ],
           const SizedBox(height: 80),
         ],
       ),
@@ -694,10 +698,10 @@ class _CreateProfileFormState extends State<CreateProfileForm> {
   final _nameController = TextEditingController();
   final _weightController = TextEditingController();
   final _heightController = TextEditingController();
-  DateTime _birthDate = DateTime.now();
+  DateTime? _birthDate;
   WeightUnit _weightUnit = WeightUnit.kg;
   HeightUnit _heightUnit = HeightUnit.cm;
-  String _purpose = purposeOptions.first;
+  String? _purpose;
   bool _saving = false;
 
   @override
@@ -720,6 +724,7 @@ class _CreateProfileFormState extends State<CreateProfileForm> {
             const SizedBox(height: 8),
             DropdownButtonFormField<String>(
               value: _purpose,
+              hint: const Text('Select purpose'),
               decoration: const InputDecoration(labelText: 'Purpose'),
               items: purposeOptions
                   .map((item) => DropdownMenuItem(value: item, child: Text(item)))
@@ -727,19 +732,27 @@ class _CreateProfileFormState extends State<CreateProfileForm> {
               onChanged: (value) {
                 if (value != null) setState(() => _purpose = value);
               },
+              validator: _required,
             ),
             const SizedBox(height: 8),
             ListTile(
               contentPadding: EdgeInsets.zero,
               title: const Text('Birth date'),
-              subtitle: Text(_birthDateFormatter.format(_birthDate)),
+              subtitle: Text(
+                _birthDate == null ? 'Required' : _birthDateFormatter.format(_birthDate!),
+              ),
+              subtitleTextStyle: TextStyle(
+                color: _birthDate == null
+                    ? Theme.of(context).colorScheme.error
+                    : Theme.of(context).textTheme.bodyMedium?.color,
+              ),
               trailing: const Icon(Icons.calendar_month),
               onTap: () async {
                 final picked = await showDatePicker(
                   context: context,
                   firstDate: DateTime(1900),
                   lastDate: DateTime.now(),
-                  initialDate: _birthDate,
+                  initialDate: _birthDate ?? DateTime.now(),
                 );
                 if (picked != null) setState(() => _birthDate = picked);
               },
@@ -794,12 +807,16 @@ class _CreateProfileFormState extends State<CreateProfileForm> {
                   ? null
                   : () async {
                       if (!_formKey.currentState!.validate()) return;
+                      if (_birthDate == null || _purpose == null) {
+                        setState(() {});
+                        return;
+                      }
                       setState(() => _saving = true);
                       await widget.onSubmit(
                         CreateProfileInput(
                           name: _nameController.text.trim(),
-                          purpose: _purpose,
-                          birthDate: _birthDate,
+                          purpose: _purpose!,
+                          birthDate: _birthDate!,
                           weightUnit: _weightUnit,
                           heightUnit: _heightUnit,
                           initialWeight: _parseOptional(_weightController.text),
@@ -844,6 +861,7 @@ class ProfileOverviewCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isBabyProfile = profile.ageInYears < 2;
     final latestWeight = profile.latestWithWeight?.weightKg;
     final latestHeight = profile.latestWithHeight?.heightCm;
     final latestBmi = profile.latest?.bmi;
@@ -879,7 +897,7 @@ class ProfileOverviewCard extends StatelessWidget {
                     value:
                         '${UnitConverter.toDisplayHeight(latestHeight, profile.heightUnit).toStringAsFixed(1)} ${profile.heightUnit.label}',
                   ),
-                if (latestBmi != null) _MetricTile(label: 'BMI', value: latestBmi.toStringAsFixed(1)),
+                if (!isBabyProfile && latestBmi != null) _MetricTile(label: 'BMI', value: latestBmi.toStringAsFixed(1)),
               ],
             ),
           ],
@@ -969,7 +987,7 @@ class AgeBasedInsightCard extends StatelessWidget {
         ? null
         : UnitConverter.toDisplayWeight(adultInsight?.weightToLoseKg ?? 0, profile.weightUnit);
 
-    final text = ageInYears < 1
+    final text = ageInYears < 2
         ? 'Baby development mode: compare growth against reference trajectory lines instead of adult BMI targets.'
         : adultInsight != null
             ? 'Adult BMI: ${latest!.bmi!.toStringAsFixed(1)} • ${adultInsight.label}'
@@ -1095,6 +1113,263 @@ class _SummaryStatCard extends StatelessWidget {
   }
 }
 
+class BabyDevelopmentProgressCard extends StatelessWidget {
+  const BabyDevelopmentProgressCard({super.key, required this.profile});
+
+  final GrowthProfile profile;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: _BabyMonthlyProgressCarousel(profile: profile),
+      ),
+    );
+  }
+}
+
+class _BabyMonthlyProgressCarousel extends StatefulWidget {
+  const _BabyMonthlyProgressCarousel({required this.profile});
+
+  final GrowthProfile profile;
+
+  @override
+  State<_BabyMonthlyProgressCarousel> createState() => _BabyMonthlyProgressCarouselState();
+}
+
+class _BabyMonthlyProgressCarouselState extends State<_BabyMonthlyProgressCarousel> {
+  late final PageController _pageController;
+  late int _selectedMonth;
+
+  int get _currentMonth => widget.profile.ageInMonths.clamp(0, 12);
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedMonth = _currentMonth;
+    _pageController = PageController(initialPage: _selectedMonth, viewportFraction: 0.9);
+  }
+
+  @override
+  void didUpdateWidget(covariant _BabyMonthlyProgressCarousel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.profile.id != widget.profile.id || oldWidget.profile.ageInMonths != widget.profile.ageInMonths) {
+      _selectedMonth = _currentMonth;
+      if (_pageController.hasClients) {
+        _pageController.jumpToPage(_selectedMonth);
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            const Icon(Icons.timeline, size: 18),
+            const SizedBox(width: 6),
+            Text(
+              'Monthly development progress (0-12 months)',
+              style: Theme.of(context).textTheme.titleSmall,
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'Swipe left/right to explore expected development for each month.',
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+        const SizedBox(height: 8),
+        SizedBox(
+          height: 186,
+          child: PageView.builder(
+            controller: _pageController,
+            itemCount: 13,
+            onPageChanged: (index) => setState(() => _selectedMonth = index),
+            itemBuilder: (context, month) {
+              final isCurrent = month == _currentMonth;
+              return Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                child: _BabyMonthCard(
+                  profile: widget.profile,
+                  month: month,
+                  isCurrentMonth: isCurrent,
+                ),
+              );
+            },
+          ),
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 6,
+          runSpacing: 6,
+          children: [
+            for (var month = 0; month <= 12; month++)
+              GestureDetector(
+                onTap: () {
+                  _pageController.animateToPage(
+                    month,
+                    duration: const Duration(milliseconds: 220),
+                    curve: Curves.easeOut,
+                  );
+                },
+                child: CircleAvatar(
+                  radius: 12,
+                  backgroundColor: month == _selectedMonth
+                      ? Theme.of(context).colorScheme.primary
+                      : Theme.of(context).colorScheme.surfaceContainerHighest,
+                  child: Text(
+                    '$month',
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: month == _selectedMonth ? Colors.white : Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _BabyMonthCard extends StatelessWidget {
+  const _BabyMonthCard({
+    required this.profile,
+    required this.month,
+    required this.isCurrentMonth,
+  });
+
+  final GrowthProfile profile;
+  final int month;
+  final bool isCurrentMonth;
+
+  @override
+  Widget build(BuildContext context) {
+    final milestone = _milestoneForMonth(month);
+    final minWeight = UnitConverter.toDisplayWeight(
+      BabyGrowthReference.referenceWeightKgForAge(month.toDouble(), band: GrowthBand.lowerBound),
+      profile.weightUnit,
+    );
+    final avgWeight = UnitConverter.toDisplayWeight(
+      BabyGrowthReference.referenceWeightKgForAge(month.toDouble(), band: GrowthBand.median),
+      profile.weightUnit,
+    );
+    final maxWeight = UnitConverter.toDisplayWeight(
+      BabyGrowthReference.referenceWeightKgForAge(month.toDouble(), band: GrowthBand.upperBound),
+      profile.weightUnit,
+    );
+    final minHeight = UnitConverter.toDisplayHeight(
+      BabyGrowthReference.referenceHeightCmForAge(month.toDouble(), band: GrowthBand.lowerBound),
+      profile.heightUnit,
+    );
+    final avgHeight = UnitConverter.toDisplayHeight(
+      BabyGrowthReference.referenceHeightCmForAge(month.toDouble(), band: GrowthBand.median),
+      profile.heightUnit,
+    );
+    final maxHeight = UnitConverter.toDisplayHeight(
+      BabyGrowthReference.referenceHeightCmForAge(month.toDouble(), band: GrowthBand.upperBound),
+      profile.heightUnit,
+    );
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: isCurrentMonth ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.outlineVariant,
+          width: isCurrentMonth ? 2 : 1,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(_iconForMonth(month), size: 20, color: Theme.of(context).colorScheme.primary),
+              const SizedBox(width: 8),
+              Text('Month $month', style: Theme.of(context).textTheme.titleSmall),
+              const Spacer(),
+              if (isCurrentMonth)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.primaryContainer,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    'Current',
+                    style: Theme.of(context).textTheme.labelSmall,
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Weight: ${avgWeight.toStringAsFixed(1)} ${profile.weightUnit.label} '
+            '(${minWeight.toStringAsFixed(1)}-${maxWeight.toStringAsFixed(1)})',
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Height: ${avgHeight.toStringAsFixed(1)} ${profile.heightUnit.label} '
+            '(${minHeight.toStringAsFixed(1)}-${maxHeight.toStringAsFixed(1)})',
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'What baby can do: $milestone',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
+          ),
+          const Spacer(),
+          Text(
+            'Expected WHO progress for this month',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ],
+      ),
+    );
+  }
+
+  IconData _iconForMonth(int month) {
+    if (month == 0) return Icons.child_friendly;
+    if (month <= 2) return Icons.baby_changing_station;
+    if (month <= 4) return Icons.smart_toy;
+    if (month <= 6) return Icons.airline_seat_recline_normal;
+    if (month <= 8) return Icons.emoji_emotions;
+    if (month <= 10) return Icons.toys;
+    return Icons.accessibility_new;
+  }
+
+  String _milestoneForMonth(int month) {
+    const milestones = <int, String>{
+      0: 'Can startle, turn head toward sounds, and focus on faces.',
+      1: 'Can briefly lift head during tummy time and track nearby faces.',
+      2: 'Can smile socially and hold head a little steadier.',
+      3: 'Can raise chest while on tummy and follow moving objects.',
+      4: 'Can hold head steady and may roll from tummy to back.',
+      5: 'Can roll both ways and show stronger hand-to-mouth control.',
+      6: 'Can sit with support and respond to own name.',
+      7: 'Can sit briefly without support and transfer toys hand-to-hand.',
+      8: 'Can crawl/creep in some babies and explore objects actively.',
+      9: 'Can pull to stand and use sounds like “mamama/bababa”.',
+      10: 'Can cruise along furniture and use pincer grasp better.',
+      11: 'Can stand with support and imitate simple actions.',
+      12: 'Can take first steps in some babies and follow simple commands.',
+    };
+    return milestones[month] ?? 'Can keep developing movement, language, and social interaction skills.';
+  }
+}
+
 class TrendCharts extends StatelessWidget {
   const TrendCharts({super.key, required this.profile});
 
@@ -1141,9 +1416,18 @@ class _WeightChartCard extends StatelessWidget {
     final values = entries.map((e) => UnitConverter.toDisplayWeight(e.weightKg!, profile.weightUnit)).toList();
     final guidanceTarget = _referenceLine(ageMonths, profile, GrowthBand.median);
     final guidanceLow = _referenceLine(ageMonths, profile, GrowthBand.lowerBound);
-    final minValue = values.reduce(min);
-    final maxValue = values.reduce(max);
+    final allChartValues = [
+      ...values,
+      if (isBabyProfile) ...guidanceTarget.map((spot) => spot.y),
+      if (isBabyProfile) ...guidanceLow.map((spot) => spot.y),
+    ];
+    final minValue = allChartValues.reduce(min);
+    final maxValue = allChartValues.reduce(max);
     final midValue = (minValue + maxValue) / 2;
+    final hasRange = (maxValue - minValue).abs() > 0.001;
+    final interval = hasRange ? (maxValue - minValue) / 2 : 0.2;
+    final chartMinY = hasRange ? minValue : minValue - 0.5;
+    final chartMaxY = hasRange ? maxValue : maxValue + 0.5;
     final chartWidth = max(680.0, entries.length * 90.0);
 
     return Card(
@@ -1153,24 +1437,36 @@ class _WeightChartCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text('Weight Trend (${profile.weightUnit.label})', style: Theme.of(context).textTheme.titleMedium),
-            Text('Min: ${minValue.toStringAsFixed(1)}  Mid: ${midValue.toStringAsFixed(1)}  Max: ${maxValue.toStringAsFixed(1)}'),
             const SizedBox(height: 8),
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
-              child: SizedBox(
-                width: chartWidth,
-                height: 260,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: LineChart(
-                    LineChartData(
+              child: SingleChildScrollView(
+                scrollDirection: Axis.vertical,
+                child: SizedBox(
+                  width: chartWidth,
+                  height: 260,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: SizedBox(
+                      height: 320,
+                      child: LineChart(
+                        LineChartData(
                       minX: -0.2,
                       maxX: entries.length - 0.8,
-                      minY: minValue - 1,
-                      maxY: maxValue + 1,
+                      minY: chartMinY,
+                      maxY: chartMaxY,
+                      clipData: const FlClipData(top: false, bottom: false, left: false, right: false),
                       gridData: const FlGridData(show: true),
                       titlesData: FlTitlesData(
-                        leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                        leftTitles: AxisTitles(
+                          sideTitles: SideTitles(
+                            showTitles: true,
+                            interval: interval,
+                            reservedSize: 56,
+                            getTitlesWidget: (value, meta) =>
+                                _buildMinMidMaxTitle(value, meta, minValue, midValue, maxValue),
+                          ),
+                        ),
                         rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
                         topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
                         bottomTitles: AxisTitles(
@@ -1180,6 +1476,7 @@ class _WeightChartCard extends StatelessWidget {
                             reservedSize: 34,
                             getTitlesWidget: (value, meta) {
                               final index = value.toInt();
+                              if ((value - index).abs() > 0.001) return const SizedBox.shrink();
                               if (index < 0 || index >= entries.length) return const SizedBox.shrink();
                               return SideTitleWidget(
                                 meta: meta,
@@ -1225,6 +1522,8 @@ class _WeightChartCard extends StatelessWidget {
                             dashArray: const [7, 4],
                           ),
                       ],
+                        ),
+                      ),
                     ),
                   ),
                 ),
@@ -1255,6 +1554,25 @@ class _WeightChartCard extends StatelessWidget {
         ),
     ];
   }
+
+  Widget _buildMinMidMaxTitle(
+    double value,
+    TitleMeta meta,
+    double minValue,
+    double midValue,
+    double maxValue,
+  ) {
+    final match =
+        (value - minValue).abs() < 0.2 || (value - midValue).abs() < 0.2 || (value - maxValue).abs() < 0.2;
+    if (!match) return const SizedBox.shrink();
+    return SideTitleWidget(
+      meta: meta,
+      child: Text(
+        value.toStringAsFixed(1),
+        style: const TextStyle(fontSize: 11, color: Colors.black87, fontWeight: FontWeight.w600),
+      ),
+    );
+  }
 }
 
 class _HeightChartCard extends StatelessWidget {
@@ -1272,9 +1590,18 @@ class _HeightChartCard extends StatelessWidget {
     final values = entries.map((e) => UnitConverter.toDisplayHeight(e.heightCm!, profile.heightUnit)).toList();
     final guidanceTarget = _referenceLine(ageMonths, profile, GrowthBand.median);
     final guidanceLow = _referenceLine(ageMonths, profile, GrowthBand.lowerBound);
-    final minValue = values.reduce(min);
-    final maxValue = values.reduce(max);
+    final allChartValues = [
+      ...values,
+      if (isBabyProfile) ...guidanceTarget.map((spot) => spot.y),
+      if (isBabyProfile) ...guidanceLow.map((spot) => spot.y),
+    ];
+    final minValue = allChartValues.reduce(min);
+    final maxValue = allChartValues.reduce(max);
     final midValue = (minValue + maxValue) / 2;
+    final hasRange = (maxValue - minValue).abs() > 0.001;
+    final interval = hasRange ? (maxValue - minValue) / 2 : 0.2;
+    final chartMinY = hasRange ? minValue : minValue - 0.5;
+    final chartMaxY = hasRange ? maxValue : maxValue + 0.5;
     final chartWidth = max(680.0, entries.length * 90.0);
 
     return Card(
@@ -1284,32 +1611,46 @@ class _HeightChartCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text('Height Trend (${profile.heightUnit.label})', style: Theme.of(context).textTheme.titleMedium),
-            Text('Min: ${minValue.toStringAsFixed(1)}  Mid: ${midValue.toStringAsFixed(1)}  Max: ${maxValue.toStringAsFixed(1)}'),
             const SizedBox(height: 8),
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
-              child: SizedBox(
-                width: chartWidth,
-                height: 260,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: LineChart(
-                    LineChartData(
+              child: SingleChildScrollView(
+                scrollDirection: Axis.vertical,
+                child: SizedBox(
+                  width: chartWidth,
+                  height: 260,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: SizedBox(
+                      height: 320,
+                      child: LineChart(
+                        LineChartData(
                       minX: -0.2,
                       maxX: entries.length - 0.8,
-                      minY: minValue - 1,
-                      maxY: maxValue + 1,
+                      minY: chartMinY,
+                      maxY: chartMaxY,
+                      clipData: const FlClipData(top: false, bottom: false, left: false, right: false),
                       gridData: const FlGridData(show: true),
                       titlesData: FlTitlesData(
-                        leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                        leftTitles: AxisTitles(
+                          sideTitles: SideTitles(
+                            showTitles: true,
+                            interval: interval,
+                            reservedSize: 56,
+                            getTitlesWidget: (value, meta) =>
+                                _buildMinMidMaxTitle(value, meta, minValue, midValue, maxValue),
+                          ),
+                        ),
                         rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
                         topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
                         bottomTitles: AxisTitles(
                           sideTitles: SideTitles(
                             showTitles: true,
+                            interval: 1,
                             reservedSize: 34,
                             getTitlesWidget: (value, meta) {
                               final index = value.toInt();
+                              if ((value - index).abs() > 0.001) return const SizedBox.shrink();
                               if (index < 0 || index >= entries.length) return const SizedBox.shrink();
                               return SideTitleWidget(
                                 meta: meta,
@@ -1355,6 +1696,8 @@ class _HeightChartCard extends StatelessWidget {
                             dashArray: const [7, 4],
                           ),
                       ],
+                        ),
+                      ),
                     ),
                   ),
                 ),
@@ -1384,6 +1727,25 @@ class _HeightChartCard extends StatelessWidget {
           ),
         ),
     ];
+  }
+
+  Widget _buildMinMidMaxTitle(
+    double value,
+    TitleMeta meta,
+    double minValue,
+    double midValue,
+    double maxValue,
+  ) {
+    final match =
+        (value - minValue).abs() < 0.2 || (value - midValue).abs() < 0.2 || (value - maxValue).abs() < 0.2;
+    if (!match) return const SizedBox.shrink();
+    return SideTitleWidget(
+      meta: meta,
+      child: Text(
+        value.toStringAsFixed(1),
+        style: const TextStyle(fontSize: 11, color: Colors.black87, fontWeight: FontWeight.w600),
+      ),
+    );
   }
 }
 
@@ -1435,8 +1797,10 @@ class EntriesTable extends StatelessWidget {
             columns: [
               const DataColumn(label: Text('Date')),
               DataColumn(label: Text('Weight (${profile.weightUnit.label})')),
+              if (isBabyProfile) const DataColumn(label: Text('Weight %ile')),
               DataColumn(label: Text('Height (${profile.heightUnit.label})')),
-              const DataColumn(label: Text('BMI')),
+              if (isBabyProfile) const DataColumn(label: Text('Height %ile')),
+              if (!isBabyProfile) const DataColumn(label: Text('BMI')),
               const DataColumn(label: Text('Actions')),
             ],
             rows: [
@@ -1473,6 +1837,11 @@ class EntriesTable extends StatelessWidget {
                       ),
                       onTap: isBabyProfile ? () => _showEntryExplanation(context, entry) : null,
                     ),
+                    if (isBabyProfile)
+                      DataCell(
+                        entry.weightKg == null ? const Text('-') : Text(BabyGrowthReference.weightPercentileLabel(profile, entry)),
+                        onTap: () => _showEntryExplanation(context, entry),
+                      ),
                     DataCell(
                       Text(
                         entry.heightCm == null
@@ -1481,10 +1850,15 @@ class EntriesTable extends StatelessWidget {
                       ),
                       onTap: isBabyProfile ? () => _showEntryExplanation(context, entry) : null,
                     ),
-                    DataCell(
-                      Text(entry.bmi == null ? '-' : entry.bmi!.toStringAsFixed(1)),
-                      onTap: isBabyProfile ? () => _showEntryExplanation(context, entry) : null,
-                    ),
+                    if (isBabyProfile)
+                      DataCell(
+                        entry.heightCm == null ? const Text('-') : Text(BabyGrowthReference.heightPercentileLabel(profile, entry)),
+                        onTap: () => _showEntryExplanation(context, entry),
+                      ),
+                    if (!isBabyProfile)
+                      DataCell(
+                        Text(entry.bmi == null ? '-' : entry.bmi!.toStringAsFixed(1)),
+                      ),
                     DataCell(
                       Row(
                         children: [
@@ -1987,6 +2361,41 @@ class BabyGrowthReference {
     return _snapshots[nearestMonth];
   }
 
+  static String weightPercentileLabel(GrowthProfile profile, MetricEntry entry) {
+    final percentile = _percentileForEntry(profile, entry, isWeight: true);
+    if (percentile == null) return '-';
+    return '${percentile.round()}th';
+  }
+
+  static String heightPercentileLabel(GrowthProfile profile, MetricEntry entry) {
+    final percentile = _percentileForEntry(profile, entry, isWeight: false);
+    if (percentile == null) return '-';
+    return '${percentile.round()}th';
+  }
+
+  static double? _percentileForEntry(GrowthProfile profile, MetricEntry entry, {required bool isWeight}) {
+    final ageInMonths = AgeDisplayFormatter.monthsBetween(profile.birthDate, entry.date).toDouble();
+    final measured = isWeight ? entry.weightKg : entry.heightCm;
+    if (measured == null) return null;
+
+    final p3 = isWeight
+        ? referenceWeightKgForAge(ageInMonths, band: GrowthBand.lowerBound)
+        : referenceHeightCmForAge(ageInMonths, band: GrowthBand.lowerBound);
+    final p50 = isWeight
+        ? referenceWeightKgForAge(ageInMonths, band: GrowthBand.median)
+        : referenceHeightCmForAge(ageInMonths, band: GrowthBand.median);
+    final p97 = isWeight
+        ? referenceWeightKgForAge(ageInMonths, band: GrowthBand.upperBound)
+        : referenceHeightCmForAge(ageInMonths, band: GrowthBand.upperBound);
+
+    if (measured <= p3) return 3;
+    if (measured >= p97) return 97;
+    if (measured <= p50) {
+      return 3 + ((measured - p3) / max(0.0001, (p50 - p3))) * 47;
+    }
+    return 50 + ((measured - p50) / max(0.0001, (p97 - p50))) * 47;
+  }
+
   static Color colorForEntry(GrowthProfile profile, MetricEntry entry) {
     final snapshot = _snapshotForDate(profile, entry.date);
     if (snapshot == null) return Colors.blueGrey;
@@ -2015,13 +2424,15 @@ class BabyGrowthReference {
     if (weight != null) {
       details.add(
         'Weight recorded: ${weight.toStringAsFixed(1)} kg. '
-        'Typical range for this age band: ${snapshot.minWeightKg.toStringAsFixed(1)}-${snapshot.maxWeightKg.toStringAsFixed(1)} kg.',
+        'Typical range for this age band: ${snapshot.minWeightKg.toStringAsFixed(1)}-${snapshot.maxWeightKg.toStringAsFixed(1)} kg '
+        '(approx percentile: ${weightPercentileLabel(profile, entry)}).',
       );
     }
     if (height != null) {
       details.add(
         'Length/height recorded: ${height.toStringAsFixed(1)} cm. '
-        'Typical range for this age band: ${snapshot.minHeightCm.toStringAsFixed(1)}-${snapshot.maxHeightCm.toStringAsFixed(1)} cm.',
+        'Typical range for this age band: ${snapshot.minHeightCm.toStringAsFixed(1)}-${snapshot.maxHeightCm.toStringAsFixed(1)} cm '
+        '(approx percentile: ${heightPercentileLabel(profile, entry)}).',
       );
     }
 
