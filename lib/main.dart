@@ -1045,6 +1045,10 @@ class AgeBasedInsightCard extends StatelessWidget {
                   ),
                 ],
               ),
+              if (profile.ageInMonths <= 12) ...[
+                const SizedBox(height: 12),
+                _BabyMonthlyProgressCarousel(profile: profile),
+              ],
             ],
           ],
         ),
@@ -1093,6 +1097,209 @@ class _SummaryStatCard extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+class _BabyMonthlyProgressCarousel extends StatefulWidget {
+  const _BabyMonthlyProgressCarousel({required this.profile});
+
+  final GrowthProfile profile;
+
+  @override
+  State<_BabyMonthlyProgressCarousel> createState() => _BabyMonthlyProgressCarouselState();
+}
+
+class _BabyMonthlyProgressCarouselState extends State<_BabyMonthlyProgressCarousel> {
+  late final PageController _pageController;
+  late int _selectedMonth;
+
+  int get _currentMonth => widget.profile.ageInMonths.clamp(0, 12);
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedMonth = _currentMonth;
+    _pageController = PageController(initialPage: _selectedMonth, viewportFraction: 0.9);
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            const Icon(Icons.timeline, size: 18),
+            const SizedBox(width: 6),
+            Text(
+              'Monthly development progress (0-12 months)',
+              style: Theme.of(context).textTheme.titleSmall,
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'Swipe left/right to explore expected development for each month.',
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+        const SizedBox(height: 8),
+        SizedBox(
+          height: 186,
+          child: PageView.builder(
+            controller: _pageController,
+            itemCount: 13,
+            onPageChanged: (index) => setState(() => _selectedMonth = index),
+            itemBuilder: (context, month) {
+              final isCurrent = month == _currentMonth;
+              return Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                child: _BabyMonthCard(
+                  profile: widget.profile,
+                  month: month,
+                  isCurrentMonth: isCurrent,
+                ),
+              );
+            },
+          ),
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 6,
+          runSpacing: 6,
+          children: [
+            for (var month = 0; month <= 12; month++)
+              GestureDetector(
+                onTap: () {
+                  _pageController.animateToPage(
+                    month,
+                    duration: const Duration(milliseconds: 220),
+                    curve: Curves.easeOut,
+                  );
+                },
+                child: CircleAvatar(
+                  radius: 12,
+                  backgroundColor: month == _selectedMonth
+                      ? Theme.of(context).colorScheme.primary
+                      : Theme.of(context).colorScheme.surfaceContainerHighest,
+                  child: Text(
+                    '$month',
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: month == _selectedMonth ? Colors.white : Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _BabyMonthCard extends StatelessWidget {
+  const _BabyMonthCard({
+    required this.profile,
+    required this.month,
+    required this.isCurrentMonth,
+  });
+
+  final GrowthProfile profile;
+  final int month;
+  final bool isCurrentMonth;
+
+  @override
+  Widget build(BuildContext context) {
+    final minWeight = UnitConverter.toDisplayWeight(
+      BabyGrowthReference.referenceWeightKgForAge(month.toDouble(), band: GrowthBand.lowerBound),
+      profile.weightUnit,
+    );
+    final avgWeight = UnitConverter.toDisplayWeight(
+      BabyGrowthReference.referenceWeightKgForAge(month.toDouble(), band: GrowthBand.median),
+      profile.weightUnit,
+    );
+    final maxWeight = UnitConverter.toDisplayWeight(
+      BabyGrowthReference.referenceWeightKgForAge(month.toDouble(), band: GrowthBand.upperBound),
+      profile.weightUnit,
+    );
+    final minHeight = UnitConverter.toDisplayHeight(
+      BabyGrowthReference.referenceHeightCmForAge(month.toDouble(), band: GrowthBand.lowerBound),
+      profile.heightUnit,
+    );
+    final avgHeight = UnitConverter.toDisplayHeight(
+      BabyGrowthReference.referenceHeightCmForAge(month.toDouble(), band: GrowthBand.median),
+      profile.heightUnit,
+    );
+    final maxHeight = UnitConverter.toDisplayHeight(
+      BabyGrowthReference.referenceHeightCmForAge(month.toDouble(), band: GrowthBand.upperBound),
+      profile.heightUnit,
+    );
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: isCurrentMonth ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.outlineVariant,
+          width: isCurrentMonth ? 2 : 1,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(_iconForMonth(month), size: 20, color: Theme.of(context).colorScheme.primary),
+              const SizedBox(width: 8),
+              Text('Month $month', style: Theme.of(context).textTheme.titleSmall),
+              const Spacer(),
+              if (isCurrentMonth)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.primaryContainer,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    'Current',
+                    style: Theme.of(context).textTheme.labelSmall,
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Weight: ${avgWeight.toStringAsFixed(1)} ${profile.weightUnit.label} '
+            '(${minWeight.toStringAsFixed(1)}-${maxWeight.toStringAsFixed(1)})',
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Height: ${avgHeight.toStringAsFixed(1)} ${profile.heightUnit.label} '
+            '(${minHeight.toStringAsFixed(1)}-${maxHeight.toStringAsFixed(1)})',
+          ),
+          const Spacer(),
+          Text(
+            'Expected WHO progress for this month',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ],
+      ),
+    );
+  }
+
+  IconData _iconForMonth(int month) {
+    if (month <= 2) return Icons.bedtime;
+    if (month <= 5) return Icons.sentiment_satisfied_alt;
+    if (month <= 8) return Icons.toys;
+    if (month <= 10) return Icons.child_care;
+    return Icons.directions_walk;
   }
 }
 
@@ -1151,8 +1358,8 @@ class _WeightChartCard extends StatelessWidget {
     final maxValue = allChartValues.reduce(max);
     final midValue = (minValue + maxValue) / 2;
     final interval = max(0.2, (maxValue - minValue) / 2);
-    final chartMinY = minValue == maxValue ? minValue - 0.5 : minValue;
-    final chartMaxY = minValue == maxValue ? maxValue + 0.5 : maxValue;
+    final chartMinY = minValue - interval;
+    final chartMaxY = maxValue + interval;
     final chartWidth = max(680.0, entries.length * 90.0);
 
     return Card(
@@ -1314,8 +1521,8 @@ class _HeightChartCard extends StatelessWidget {
     final maxValue = allChartValues.reduce(max);
     final midValue = (minValue + maxValue) / 2;
     final interval = max(0.2, (maxValue - minValue) / 2);
-    final chartMinY = minValue == maxValue ? minValue - 0.5 : minValue;
-    final chartMaxY = minValue == maxValue ? maxValue + 0.5 : maxValue;
+    final chartMinY = minValue - interval;
+    final chartMaxY = maxValue + interval;
     final chartWidth = max(680.0, entries.length * 90.0);
 
     return Card(
