@@ -675,9 +675,7 @@ class TrackerDashboard extends StatelessWidget {
           const SizedBox(height: 12),
           AgeBasedInsightCard(profile: profile),
           const SizedBox(height: 12),
-          TrendCharts(profile: profile),
-          const SizedBox(height: 12),
-          EntriesTable(profile: profile, onDataChanged: onDataChanged),
+          TrendCharts(profile: profile, onDataChanged: onDataChanged),
           if (profile.ageInMonths <= 12) ...[
             const SizedBox(height: 12),
             BabyDevelopmentProgressCard(profile: profile),
@@ -1430,9 +1428,10 @@ class _BabyMonthCard extends StatelessWidget {
 }
 
 class TrendCharts extends StatelessWidget {
-  const TrendCharts({super.key, required this.profile});
+  const TrendCharts({super.key, required this.profile, required this.onDataChanged});
 
   final GrowthProfile profile;
+  final Future<void> Function() onDataChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -1445,9 +1444,28 @@ class TrendCharts extends StatelessWidget {
 
     return Column(
       children: [
-        if (weightPoints.length >= 2) _WeightChartCard(profile: profile, entries: weightPoints),
-        if (weightPoints.length >= 2 && heightPoints.length >= 2) const SizedBox(height: 12),
-        if (heightPoints.length >= 2) _HeightChartCard(profile: profile, entries: heightPoints),
+        if (weightPoints.length >= 2) ...[
+          _WeightChartCard(profile: profile, entries: weightPoints),
+          const SizedBox(height: 12),
+        ],
+        if (weightPoints.isNotEmpty) ...[
+          _WeightEntriesTableCard(
+            profile: profile,
+            entries: weightPoints,
+            onDataChanged: onDataChanged,
+          ),
+          const SizedBox(height: 12),
+        ],
+        if (heightPoints.length >= 2) ...[
+          _HeightChartCard(profile: profile, entries: heightPoints),
+          const SizedBox(height: 12),
+        ],
+        if (heightPoints.isNotEmpty)
+          _HeightEntriesTableCard(
+            profile: profile,
+            entries: heightPoints,
+            onDataChanged: onDataChanged,
+          ),
         if (weightPoints.length < 2 && heightPoints.length < 2)
           const Card(
             child: Padding(
@@ -1789,16 +1807,20 @@ class _LogoBadge extends StatelessWidget {
   }
 }
 
-class EntriesTable extends StatelessWidget {
-  const EntriesTable({super.key, required this.profile, required this.onDataChanged});
+class _WeightEntriesTableCard extends StatelessWidget {
+  const _WeightEntriesTableCard({
+    required this.profile,
+    required this.entries,
+    required this.onDataChanged,
+  });
 
   final GrowthProfile profile;
+  final List<MetricEntry> entries;
   final Future<void> Function() onDataChanged;
 
   @override
   Widget build(BuildContext context) {
-    final isBabyProfile = profile.ageInYears < 2;
-    final sorted = [...profile.entries]..sort((a, b) => b.date.compareTo(a.date));
+    final sorted = [...entries]..sort((a, b) => b.date.compareTo(a.date));
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(12),
@@ -1808,37 +1830,30 @@ class EntriesTable extends StatelessWidget {
             columns: [
               const DataColumn(label: Text('Date')),
               DataColumn(label: Text('Weight (${profile.weightUnit.label})')),
-              if (isBabyProfile) const DataColumn(label: Text('Weight %ile')),
-              DataColumn(label: Text('Height (${profile.heightUnit.label})')),
-              if (isBabyProfile) const DataColumn(label: Text('Height %ile')),
-              if (!isBabyProfile) const DataColumn(label: Text('BMI')),
+              const DataColumn(label: Text('Weight %ile')),
               const DataColumn(label: Text('Actions')),
             ],
             rows: [
               for (final entry in sorted)
                 DataRow.byIndex(
                   index: entry.id,
-                  color: isBabyProfile
-                      ? MaterialStatePropertyAll(
-                          BabyGrowthReference.colorForEntry(profile, entry).withOpacity(0.14),
-                        )
-                      : null,
+                  color: MaterialStatePropertyAll(
+                    BabyGrowthReference.weightColorForEntry(profile, entry).withOpacity(0.14),
+                  ),
                   cells: [
                     DataCell(
                       Row(
                         children: [
-                          if (isBabyProfile) ...[
-                            Icon(
-                              Icons.circle,
-                              size: 10,
-                              color: BabyGrowthReference.colorForEntry(profile, entry),
-                            ),
-                            const SizedBox(width: 6),
-                          ],
+                          Icon(
+                            Icons.circle,
+                            size: 10,
+                            color: BabyGrowthReference.weightColorForEntry(profile, entry),
+                          ),
+                          const SizedBox(width: 6),
                           Text(_shortDateFormatter.format(entry.date)),
                         ],
                       ),
-                      onTap: isBabyProfile ? () => _showEntryExplanation(context, entry) : null,
+                      onTap: () => _showWeightExplanation(context, entry),
                     ),
                     DataCell(
                       Text(
@@ -1846,37 +1861,19 @@ class EntriesTable extends StatelessWidget {
                             ? '-'
                             : UnitConverter.toDisplayWeight(entry.weightKg!, profile.weightUnit).toStringAsFixed(1),
                       ),
-                      onTap: isBabyProfile ? () => _showEntryExplanation(context, entry) : null,
+                      onTap: () => _showWeightExplanation(context, entry),
                     ),
-                    if (isBabyProfile)
-                      DataCell(
-                        entry.weightKg == null ? const Text('-') : Text(BabyGrowthReference.weightPercentileLabel(profile, entry)),
-                        onTap: () => _showEntryExplanation(context, entry),
-                      ),
                     DataCell(
-                      Text(
-                        entry.heightCm == null
-                            ? '-'
-                            : UnitConverter.toDisplayHeight(entry.heightCm!, profile.heightUnit).toStringAsFixed(1),
-                      ),
-                      onTap: isBabyProfile ? () => _showEntryExplanation(context, entry) : null,
+                      Text(BabyGrowthReference.weightPercentileLabel(profile, entry)),
+                      onTap: () => _showWeightExplanation(context, entry),
                     ),
-                    if (isBabyProfile)
-                      DataCell(
-                        entry.heightCm == null ? const Text('-') : Text(BabyGrowthReference.heightPercentileLabel(profile, entry)),
-                        onTap: () => _showEntryExplanation(context, entry),
-                      ),
-                    if (!isBabyProfile)
-                      DataCell(
-                        Text(entry.bmi == null ? '-' : entry.bmi!.toStringAsFixed(1)),
-                      ),
                     DataCell(
                       Row(
                         children: [
                           IconButton(
                             tooltip: 'Edit entry',
                             icon: const Icon(Icons.edit_outlined),
-                            onPressed: () => _showEditEntrySheet(context, entry),
+                            onPressed: () => _showEditEntrySheet(context, entry, MeasurementType.weight),
                           ),
                           IconButton(
                             tooltip: 'Delete entry',
@@ -1918,12 +1915,20 @@ class EntriesTable extends StatelessWidget {
     await onDataChanged();
   }
 
-  Future<void> _showEditEntrySheet(BuildContext context, MetricEntry entry) async {
+  Future<void> _showEditEntrySheet(
+    BuildContext context,
+    MetricEntry entry,
+    MeasurementType measurementType,
+  ) async {
     final result = await showModalBottomSheet<AddEntryInput>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
-      builder: (_) => AddEntrySheet(profile: profile, initialEntry: entry),
+      builder: (_) => AddEntrySheet(
+        profile: profile,
+        initialEntry: entry,
+        editMeasurementType: measurementType,
+      ),
     );
     if (result == null) return;
     await ProfileRepository.instance.updateEntry(
@@ -1939,12 +1944,12 @@ class EntriesTable extends StatelessWidget {
     await onDataChanged();
   }
 
-  void _showEntryExplanation(BuildContext context, MetricEntry entry) {
-    final explanation = BabyGrowthReference.explainEntry(profile, entry);
+  void _showWeightExplanation(BuildContext context, MetricEntry entry) {
+    final explanation = BabyGrowthReference.explainWeightEntry(profile, entry);
     showDialog<void>(
       context: context,
       builder: (_) => AlertDialog(
-        title: const Text('Explanation'),
+        title: const Text('Weight explanation'),
         content: Text(explanation),
         actions: [
           TextButton(
@@ -1957,6 +1962,163 @@ class EntriesTable extends StatelessWidget {
   }
 }
 
+class _HeightEntriesTableCard extends StatelessWidget {
+  const _HeightEntriesTableCard({
+    required this.profile,
+    required this.entries,
+    required this.onDataChanged,
+  });
+
+  final GrowthProfile profile;
+  final List<MetricEntry> entries;
+  final Future<void> Function() onDataChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final sorted = [...entries]..sort((a, b) => b.date.compareTo(a.date));
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: DataTable(
+            columns: [
+              const DataColumn(label: Text('Date')),
+              DataColumn(label: Text('Height (${profile.heightUnit.label})')),
+              const DataColumn(label: Text('Height %ile')),
+              const DataColumn(label: Text('Actions')),
+            ],
+            rows: [
+              for (final entry in sorted)
+                DataRow.byIndex(
+                  index: entry.id,
+                  color: MaterialStatePropertyAll(
+                    BabyGrowthReference.heightColorForEntry(profile, entry).withOpacity(0.14),
+                  ),
+                  cells: [
+                    DataCell(
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.circle,
+                            size: 10,
+                            color: BabyGrowthReference.heightColorForEntry(profile, entry),
+                          ),
+                          const SizedBox(width: 6),
+                          Text(_shortDateFormatter.format(entry.date)),
+                        ],
+                      ),
+                      onTap: () => _showHeightExplanation(context, entry),
+                    ),
+                    DataCell(
+                      Text(
+                        entry.heightCm == null
+                            ? '-'
+                            : UnitConverter.toDisplayHeight(entry.heightCm!, profile.heightUnit).toStringAsFixed(1),
+                      ),
+                      onTap: () => _showHeightExplanation(context, entry),
+                    ),
+                    DataCell(
+                      Text(BabyGrowthReference.heightPercentileLabel(profile, entry)),
+                      onTap: () => _showHeightExplanation(context, entry),
+                    ),
+                    DataCell(
+                      Row(
+                        children: [
+                          IconButton(
+                            tooltip: 'Edit entry',
+                            icon: const Icon(Icons.edit_outlined),
+                            onPressed: () => _showEditEntrySheet(context, entry, MeasurementType.height),
+                          ),
+                          IconButton(
+                            tooltip: 'Delete entry',
+                            icon: const Icon(Icons.delete_outline),
+                            onPressed: () => _confirmDeleteEntry(context, entry),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _confirmDeleteEntry(BuildContext context, MetricEntry entry) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Delete entry?'),
+        content: Text('Delete measurement from ${_shortDateFormatter.format(entry.date)}?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    await ProfileRepository.instance.deleteEntry(entry.id);
+    await onDataChanged();
+  }
+
+  Future<void> _showEditEntrySheet(
+    BuildContext context,
+    MetricEntry entry,
+    MeasurementType measurementType,
+  ) async {
+    final result = await showModalBottomSheet<AddEntryInput>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (_) => AddEntrySheet(
+        profile: profile,
+        initialEntry: entry,
+        editMeasurementType: measurementType,
+      ),
+    );
+    if (result == null) return;
+    await ProfileRepository.instance.updateEntry(
+      entryId: entry.id,
+      date: result.date,
+      weightKg: result.weight == null
+          ? null
+          : UnitConverter.fromDisplayWeight(result.weight!, profile.weightUnit),
+      heightCm: result.height == null
+          ? null
+          : UnitConverter.fromDisplayHeight(result.height!, profile.heightUnit),
+    );
+    await onDataChanged();
+  }
+
+  void _showHeightExplanation(BuildContext context, MetricEntry entry) {
+    final explanation = BabyGrowthReference.explainHeightEntry(profile, entry);
+    showDialog<void>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Height explanation'),
+        content: Text(explanation),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+enum MeasurementType { weight, height }
+
 class AddEntryInput {
   const AddEntryInput({required this.date, this.weight, this.height});
 
@@ -1966,10 +2128,16 @@ class AddEntryInput {
 }
 
 class AddEntrySheet extends StatefulWidget {
-  const AddEntrySheet({super.key, required this.profile, this.initialEntry});
+  const AddEntrySheet({
+    super.key,
+    required this.profile,
+    this.initialEntry,
+    this.editMeasurementType,
+  });
 
   final GrowthProfile profile;
   final MetricEntry? initialEntry;
+  final MeasurementType? editMeasurementType;
 
   @override
   State<AddEntrySheet> createState() => _AddEntrySheetState();
@@ -2007,19 +2175,22 @@ class _AddEntrySheetState extends State<AddEntrySheet> {
           children: [
             Text('${widget.initialEntry == null ? 'Add' : 'Edit'} measurement for ${widget.profile.name}'),
             const SizedBox(height: 8),
-            TextFormField(
-              controller: _weightController,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              decoration: InputDecoration(labelText: 'Weight (${widget.profile.weightUnit.label}) • optional'),
-              validator: _optionalPositive,
-            ),
-            const SizedBox(height: 8),
-            TextFormField(
-              controller: _heightController,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              decoration: InputDecoration(labelText: 'Height (${widget.profile.heightUnit.label}) • optional'),
-              validator: _optionalPositive,
-            ),
+            if (widget.editMeasurementType != MeasurementType.height) ...[
+              TextFormField(
+                controller: _weightController,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                decoration: InputDecoration(labelText: 'Weight (${widget.profile.weightUnit.label}) • optional'),
+                validator: _optionalPositive,
+              ),
+              const SizedBox(height: 8),
+            ],
+            if (widget.editMeasurementType != MeasurementType.weight)
+              TextFormField(
+                controller: _heightController,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                decoration: InputDecoration(labelText: 'Height (${widget.profile.heightUnit.label}) • optional'),
+                validator: _optionalPositive,
+              ),
             ListTile(
               contentPadding: EdgeInsets.zero,
               title: const Text('Measurement date'),
@@ -2038,8 +2209,12 @@ class _AddEntrySheetState extends State<AddEntrySheet> {
             FilledButton.icon(
               onPressed: () {
                 if (!_formKey.currentState!.validate()) return;
-                final weight = _parseOptional(_weightController.text);
-                final height = _parseOptional(_heightController.text);
+                final weight = widget.editMeasurementType == MeasurementType.height
+                    ? null
+                    : _parseOptional(_weightController.text);
+                final height = widget.editMeasurementType == MeasurementType.weight
+                    ? null
+                    : _parseOptional(_heightController.text);
                 if (weight == null && height == null) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(content: Text('Provide at least weight or height.')),
@@ -2516,41 +2691,73 @@ class BabyGrowthReference {
     return Colors.green;
   }
 
-  static String explainEntry(GrowthProfile profile, MetricEntry entry) {
+  static Color weightColorForEntry(GrowthProfile profile, MetricEntry entry) {
+    final snapshot = _snapshotForDate(profile, entry.date);
+    if (snapshot == null || entry.weightKg == null) return Colors.blueGrey;
+    final weight = entry.weightKg!;
+    return (weight < snapshot.minWeightKg || weight > snapshot.maxWeightKg) ? Colors.red : Colors.green;
+  }
+
+  static Color heightColorForEntry(GrowthProfile profile, MetricEntry entry) {
+    final snapshot = _snapshotForDate(profile, entry.date);
+    if (snapshot == null || entry.heightCm == null) return Colors.blueGrey;
+    final height = entry.heightCm!;
+    return (height < snapshot.minHeightCm || height > snapshot.maxHeightCm) ? Colors.red : Colors.green;
+  }
+
+  static String explainWeightEntry(GrowthProfile profile, MetricEntry entry) {
     final snapshot = _snapshotForDate(profile, entry.date);
     if (snapshot == null) {
-      return 'This entry is shown as neutral because baby growth reference ranges are used through 24 months of age.';
+      return 'Weight references are shown through 24 months of age, so no weight interpretation is available for this date.';
     }
 
     final weight = entry.weightKg;
-    final height = entry.heightCm;
-    final details = <String>[];
-    if (weight != null) {
-      details.add(
+    if (weight == null) {
+      return 'No weight was recorded in this entry.';
+    }
+    final details =
         'Weight recorded: ${weight.toStringAsFixed(1)} kg. '
         'Typical range for this age band: ${snapshot.minWeightKg.toStringAsFixed(1)}-${snapshot.maxWeightKg.toStringAsFixed(1)} kg '
-        '(approx percentile: ${weightPercentileLabel(profile, entry)}).',
-      );
-    }
-    if (height != null) {
-      details.add(
-        'Length/height recorded: ${height.toStringAsFixed(1)} cm. '
-        'Typical range for this age band: ${snapshot.minHeightCm.toStringAsFixed(1)}-${snapshot.maxHeightCm.toStringAsFixed(1)} cm '
-        '(approx percentile: ${heightPercentileLabel(profile, entry)}).',
-      );
-    }
+        '(approx percentile: ${weightPercentileLabel(profile, entry)}).';
 
-    final color = colorForEntry(profile, entry);
+    final color = weightColorForEntry(profile, entry);
     final reason = color == Colors.red
-        ? 'Clinical note: at least one measurement is outside the expected reference range for age, so this row is highlighted in red.'
+        ? 'Clinical note: the weight is outside the expected reference range for age, so this row is highlighted in red.'
         : color == Colors.green
-            ? 'Clinical note: the recorded measurements are within expected reference ranges for age, so this row is highlighted in green.'
-            : 'Clinical note: no interpretable measurements were recorded in this entry.';
+            ? 'Clinical note: the weight is within the expected reference range for age, so this row is highlighted in green.'
+            : 'Clinical note: no interpretable weight was recorded in this entry.';
     final measuredAge = AgeDisplayFormatter.babyMonthsAndDays(
       profile.birthDate,
       asOf: entry.date,
     );
-    final detailText = details.isEmpty ? '' : '\n\n${details.join('\n')}';
-    return '$reason$detailText\n\nReference age band: ${snapshot.ageLabel} (measured at $measuredAge, ${profile.gender.label} reference).\n\nThese references are aligned to WHO Child Growth Standards for ages 0-24 months and are for guidance only. If you are concerned, consult your pediatrician.';
+    return '$reason\n\n$details\n\nReference age band: ${snapshot.ageLabel} (measured at $measuredAge, ${profile.gender.label} reference).\n\nThese references are aligned to WHO Child Growth Standards for ages 0-24 months and are for guidance only. If you are concerned, consult your pediatrician.';
+  }
+
+  static String explainHeightEntry(GrowthProfile profile, MetricEntry entry) {
+    final snapshot = _snapshotForDate(profile, entry.date);
+    if (snapshot == null) {
+      return 'Height references are shown through 24 months of age, so no height interpretation is available for this date.';
+    }
+
+    final height = entry.heightCm;
+    if (height == null) {
+      return 'No height was recorded in this entry.';
+    }
+    final details =
+        'Length/height recorded: ${height.toStringAsFixed(1)} cm. '
+        'Typical range for this age band: ${snapshot.minHeightCm.toStringAsFixed(1)}-${snapshot.maxHeightCm.toStringAsFixed(1)} cm '
+        '(approx percentile: ${heightPercentileLabel(profile, entry)}).';
+
+    final color = heightColorForEntry(profile, entry);
+    final reason = color == Colors.red
+        ? 'Clinical note: the height is outside the expected reference range for age, so this row is highlighted in red.'
+        : color == Colors.green
+            ? 'Clinical note: the height is within the expected reference range for age, so this row is highlighted in green.'
+            : 'Clinical note: no interpretable height was recorded in this entry.';
+    final measuredAge = AgeDisplayFormatter.babyMonthsAndDays(
+      profile.birthDate,
+      asOf: entry.date,
+    );
+    return '$reason\n\n$details\n\nReference age band: ${snapshot.ageLabel} (measured at $measuredAge, ${profile.gender.label} reference).\n\nThese references are aligned to WHO Child Growth Standards for ages 0-24 months and are for guidance only. If you are concerned, consult your pediatrician.';
   }
 }
