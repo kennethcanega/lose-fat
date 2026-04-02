@@ -1141,9 +1141,15 @@ class _WeightChartCard extends StatelessWidget {
     final values = entries.map((e) => UnitConverter.toDisplayWeight(e.weightKg!, profile.weightUnit)).toList();
     final guidanceTarget = _referenceLine(ageMonths, profile, GrowthBand.median);
     final guidanceLow = _referenceLine(ageMonths, profile, GrowthBand.lowerBound);
-    final minValue = values.reduce(min);
-    final maxValue = values.reduce(max);
+    final allChartValues = [
+      ...values,
+      if (isBabyProfile) ...guidanceTarget.map((spot) => spot.y),
+      if (isBabyProfile) ...guidanceLow.map((spot) => spot.y),
+    ];
+    final minValue = allChartValues.reduce(min);
+    final maxValue = allChartValues.reduce(max);
     final midValue = (minValue + maxValue) / 2;
+    final yPadding = max(0.6, (maxValue - minValue) * 0.08);
     final chartWidth = max(680.0, entries.length * 90.0);
 
     return Card(
@@ -1153,7 +1159,6 @@ class _WeightChartCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text('Weight Trend (${profile.weightUnit.label})', style: Theme.of(context).textTheme.titleMedium),
-            Text('Min: ${minValue.toStringAsFixed(1)}  Mid: ${midValue.toStringAsFixed(1)}  Max: ${maxValue.toStringAsFixed(1)}'),
             const SizedBox(height: 8),
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
@@ -1166,11 +1171,18 @@ class _WeightChartCard extends StatelessWidget {
                     LineChartData(
                       minX: -0.2,
                       maxX: entries.length - 0.8,
-                      minY: minValue - 1,
-                      maxY: maxValue + 1,
+                      minY: minValue - yPadding,
+                      maxY: maxValue + yPadding,
                       gridData: const FlGridData(show: true),
                       titlesData: FlTitlesData(
-                        leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                        leftTitles: AxisTitles(
+                          sideTitles: SideTitles(
+                            showTitles: true,
+                            reservedSize: 56,
+                            getTitlesWidget: (value, meta) =>
+                                _buildMinMidMaxTitle(value, meta, minValue, midValue, maxValue),
+                          ),
+                        ),
                         rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
                         topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
                         bottomTitles: AxisTitles(
@@ -1180,6 +1192,7 @@ class _WeightChartCard extends StatelessWidget {
                             reservedSize: 34,
                             getTitlesWidget: (value, meta) {
                               final index = value.toInt();
+                              if ((value - index).abs() > 0.001) return const SizedBox.shrink();
                               if (index < 0 || index >= entries.length) return const SizedBox.shrink();
                               return SideTitleWidget(
                                 meta: meta,
@@ -1255,6 +1268,19 @@ class _WeightChartCard extends StatelessWidget {
         ),
     ];
   }
+
+  Widget _buildMinMidMaxTitle(
+    double value,
+    TitleMeta meta,
+    double minValue,
+    double midValue,
+    double maxValue,
+  ) {
+    final match =
+        (value - minValue).abs() < 0.05 || (value - midValue).abs() < 0.05 || (value - maxValue).abs() < 0.05;
+    if (!match) return const SizedBox.shrink();
+    return Text(value.toStringAsFixed(1), style: const TextStyle(fontSize: 11));
+  }
 }
 
 class _HeightChartCard extends StatelessWidget {
@@ -1272,9 +1298,15 @@ class _HeightChartCard extends StatelessWidget {
     final values = entries.map((e) => UnitConverter.toDisplayHeight(e.heightCm!, profile.heightUnit)).toList();
     final guidanceTarget = _referenceLine(ageMonths, profile, GrowthBand.median);
     final guidanceLow = _referenceLine(ageMonths, profile, GrowthBand.lowerBound);
-    final minValue = values.reduce(min);
-    final maxValue = values.reduce(max);
+    final allChartValues = [
+      ...values,
+      if (isBabyProfile) ...guidanceTarget.map((spot) => spot.y),
+      if (isBabyProfile) ...guidanceLow.map((spot) => spot.y),
+    ];
+    final minValue = allChartValues.reduce(min);
+    final maxValue = allChartValues.reduce(max);
     final midValue = (minValue + maxValue) / 2;
+    final yPadding = max(0.6, (maxValue - minValue) * 0.08);
     final chartWidth = max(680.0, entries.length * 90.0);
 
     return Card(
@@ -1284,7 +1316,6 @@ class _HeightChartCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text('Height Trend (${profile.heightUnit.label})', style: Theme.of(context).textTheme.titleMedium),
-            Text('Min: ${minValue.toStringAsFixed(1)}  Mid: ${midValue.toStringAsFixed(1)}  Max: ${maxValue.toStringAsFixed(1)}'),
             const SizedBox(height: 8),
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
@@ -1297,19 +1328,28 @@ class _HeightChartCard extends StatelessWidget {
                     LineChartData(
                       minX: -0.2,
                       maxX: entries.length - 0.8,
-                      minY: minValue - 1,
-                      maxY: maxValue + 1,
+                      minY: minValue - yPadding,
+                      maxY: maxValue + yPadding,
                       gridData: const FlGridData(show: true),
                       titlesData: FlTitlesData(
-                        leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                        leftTitles: AxisTitles(
+                          sideTitles: SideTitles(
+                            showTitles: true,
+                            reservedSize: 56,
+                            getTitlesWidget: (value, meta) =>
+                                _buildMinMidMaxTitle(value, meta, minValue, midValue, maxValue),
+                          ),
+                        ),
                         rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
                         topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
                         bottomTitles: AxisTitles(
                           sideTitles: SideTitles(
                             showTitles: true,
+                            interval: 1,
                             reservedSize: 34,
                             getTitlesWidget: (value, meta) {
                               final index = value.toInt();
+                              if ((value - index).abs() > 0.001) return const SizedBox.shrink();
                               if (index < 0 || index >= entries.length) return const SizedBox.shrink();
                               return SideTitleWidget(
                                 meta: meta,
@@ -1385,6 +1425,19 @@ class _HeightChartCard extends StatelessWidget {
         ),
     ];
   }
+
+  Widget _buildMinMidMaxTitle(
+    double value,
+    TitleMeta meta,
+    double minValue,
+    double midValue,
+    double maxValue,
+  ) {
+    final match =
+        (value - minValue).abs() < 0.05 || (value - midValue).abs() < 0.05 || (value - maxValue).abs() < 0.05;
+    if (!match) return const SizedBox.shrink();
+    return Text(value.toStringAsFixed(1), style: const TextStyle(fontSize: 11));
+  }
 }
 
 class _LogoBadge extends StatelessWidget {
@@ -1435,7 +1488,9 @@ class EntriesTable extends StatelessWidget {
             columns: [
               const DataColumn(label: Text('Date')),
               DataColumn(label: Text('Weight (${profile.weightUnit.label})')),
+              if (isBabyProfile) const DataColumn(label: Text('Weight %ile')),
               DataColumn(label: Text('Height (${profile.heightUnit.label})')),
+              if (isBabyProfile) const DataColumn(label: Text('Height %ile')),
               const DataColumn(label: Text('BMI')),
               const DataColumn(label: Text('Actions')),
             ],
@@ -1473,6 +1528,11 @@ class EntriesTable extends StatelessWidget {
                       ),
                       onTap: isBabyProfile ? () => _showEntryExplanation(context, entry) : null,
                     ),
+                    if (isBabyProfile)
+                      DataCell(
+                        entry.weightKg == null ? const Text('-') : Text(BabyGrowthReference.weightPercentileLabel(profile, entry)),
+                        onTap: () => _showEntryExplanation(context, entry),
+                      ),
                     DataCell(
                       Text(
                         entry.heightCm == null
@@ -1481,6 +1541,11 @@ class EntriesTable extends StatelessWidget {
                       ),
                       onTap: isBabyProfile ? () => _showEntryExplanation(context, entry) : null,
                     ),
+                    if (isBabyProfile)
+                      DataCell(
+                        entry.heightCm == null ? const Text('-') : Text(BabyGrowthReference.heightPercentileLabel(profile, entry)),
+                        onTap: () => _showEntryExplanation(context, entry),
+                      ),
                     DataCell(
                       Text(entry.bmi == null ? '-' : entry.bmi!.toStringAsFixed(1)),
                       onTap: isBabyProfile ? () => _showEntryExplanation(context, entry) : null,
@@ -1987,6 +2052,41 @@ class BabyGrowthReference {
     return _snapshots[nearestMonth];
   }
 
+  static String weightPercentileLabel(GrowthProfile profile, MetricEntry entry) {
+    final percentile = _percentileForEntry(profile, entry, isWeight: true);
+    if (percentile == null) return '-';
+    return '${percentile.round()}th';
+  }
+
+  static String heightPercentileLabel(GrowthProfile profile, MetricEntry entry) {
+    final percentile = _percentileForEntry(profile, entry, isWeight: false);
+    if (percentile == null) return '-';
+    return '${percentile.round()}th';
+  }
+
+  static double? _percentileForEntry(GrowthProfile profile, MetricEntry entry, {required bool isWeight}) {
+    final ageInMonths = AgeDisplayFormatter.monthsBetween(profile.birthDate, entry.date).toDouble();
+    final measured = isWeight ? entry.weightKg : entry.heightCm;
+    if (measured == null) return null;
+
+    final p3 = isWeight
+        ? referenceWeightKgForAge(ageInMonths, band: GrowthBand.lowerBound)
+        : referenceHeightCmForAge(ageInMonths, band: GrowthBand.lowerBound);
+    final p50 = isWeight
+        ? referenceWeightKgForAge(ageInMonths, band: GrowthBand.median)
+        : referenceHeightCmForAge(ageInMonths, band: GrowthBand.median);
+    final p97 = isWeight
+        ? referenceWeightKgForAge(ageInMonths, band: GrowthBand.upperBound)
+        : referenceHeightCmForAge(ageInMonths, band: GrowthBand.upperBound);
+
+    if (measured <= p3) return 3;
+    if (measured >= p97) return 97;
+    if (measured <= p50) {
+      return 3 + ((measured - p3) / max(0.0001, (p50 - p3))) * 47;
+    }
+    return 50 + ((measured - p50) / max(0.0001, (p97 - p50))) * 47;
+  }
+
   static Color colorForEntry(GrowthProfile profile, MetricEntry entry) {
     final snapshot = _snapshotForDate(profile, entry.date);
     if (snapshot == null) return Colors.blueGrey;
@@ -2015,13 +2115,15 @@ class BabyGrowthReference {
     if (weight != null) {
       details.add(
         'Weight recorded: ${weight.toStringAsFixed(1)} kg. '
-        'Typical range for this age band: ${snapshot.minWeightKg.toStringAsFixed(1)}-${snapshot.maxWeightKg.toStringAsFixed(1)} kg.',
+        'Typical range for this age band: ${snapshot.minWeightKg.toStringAsFixed(1)}-${snapshot.maxWeightKg.toStringAsFixed(1)} kg '
+        '(approx percentile: ${weightPercentileLabel(profile, entry)}).',
       );
     }
     if (height != null) {
       details.add(
         'Length/height recorded: ${height.toStringAsFixed(1)} cm. '
-        'Typical range for this age band: ${snapshot.minHeightCm.toStringAsFixed(1)}-${snapshot.maxHeightCm.toStringAsFixed(1)} cm.',
+        'Typical range for this age band: ${snapshot.minHeightCm.toStringAsFixed(1)}-${snapshot.maxHeightCm.toStringAsFixed(1)} cm '
+        '(approx percentile: ${heightPercentileLabel(profile, entry)}).',
       );
     }
 
