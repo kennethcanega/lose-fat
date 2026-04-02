@@ -1947,6 +1947,10 @@ class _WeightEntriesTableCard extends StatelessWidget {
   }
 
   void _showWeightExplanation(BuildContext context, MetricEntry entry) {
+    if (BabyGrowthReference._snapshotForDate(profile, entry.date) == null) {
+      return;
+    }
+
     final explanation = BabyGrowthReference.explainWeightEntry(profile, entry);
     showDialog<void>(
       context: context,
@@ -2104,6 +2108,9 @@ class _HeightEntriesTableCard extends StatelessWidget {
   }
 
   void _showHeightExplanation(BuildContext context, MetricEntry entry) {
+    if (BabyGrowthReference._snapshotForDate(profile, entry.date) == null) {
+      return;
+    }
     final explanation = BabyGrowthReference.explainHeightEntry(profile, entry);
     showDialog<void>(
       context: context,
