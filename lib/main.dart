@@ -662,6 +662,10 @@ class TrackerDashboard extends StatelessWidget {
           TrendCharts(profile: profile),
           const SizedBox(height: 12),
           EntriesTable(profile: profile, onDataChanged: onDataChanged),
+          if (profile.ageInMonths <= 12) ...[
+            const SizedBox(height: 12),
+            BabyDevelopmentProgressCard(profile: profile),
+          ],
           const SizedBox(height: 80),
         ],
       ),
@@ -1045,10 +1049,6 @@ class AgeBasedInsightCard extends StatelessWidget {
                   ),
                 ],
               ),
-              if (profile.ageInMonths <= 12) ...[
-                const SizedBox(height: 12),
-                _BabyMonthlyProgressCarousel(profile: profile),
-              ],
             ],
           ],
         ),
@@ -1100,6 +1100,22 @@ class _SummaryStatCard extends StatelessWidget {
   }
 }
 
+class BabyDevelopmentProgressCard extends StatelessWidget {
+  const BabyDevelopmentProgressCard({super.key, required this.profile});
+
+  final GrowthProfile profile;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: _BabyMonthlyProgressCarousel(profile: profile),
+      ),
+    );
+  }
+}
+
 class _BabyMonthlyProgressCarousel extends StatefulWidget {
   const _BabyMonthlyProgressCarousel({required this.profile});
 
@@ -1120,6 +1136,17 @@ class _BabyMonthlyProgressCarouselState extends State<_BabyMonthlyProgressCarous
     super.initState();
     _selectedMonth = _currentMonth;
     _pageController = PageController(initialPage: _selectedMonth, viewportFraction: 0.9);
+  }
+
+  @override
+  void didUpdateWidget(covariant _BabyMonthlyProgressCarousel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.profile.id != widget.profile.id || oldWidget.profile.ageInMonths != widget.profile.ageInMonths) {
+      _selectedMonth = _currentMonth;
+      if (_pageController.hasClients) {
+        _pageController.jumpToPage(_selectedMonth);
+      }
+    }
   }
 
   @override
@@ -1216,6 +1243,7 @@ class _BabyMonthCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final milestone = _milestoneForMonth(month);
     final minWeight = UnitConverter.toDisplayWeight(
       BabyGrowthReference.referenceWeightKgForAge(month.toDouble(), band: GrowthBand.lowerBound),
       profile.weightUnit,
@@ -1284,6 +1312,11 @@ class _BabyMonthCard extends StatelessWidget {
             'Height: ${avgHeight.toStringAsFixed(1)} ${profile.heightUnit.label} '
             '(${minHeight.toStringAsFixed(1)}-${maxHeight.toStringAsFixed(1)})',
           ),
+          const SizedBox(height: 8),
+          Text(
+            'What baby can do: $milestone',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
+          ),
           const Spacer(),
           Text(
             'Expected WHO progress for this month',
@@ -1295,11 +1328,32 @@ class _BabyMonthCard extends StatelessWidget {
   }
 
   IconData _iconForMonth(int month) {
-    if (month <= 2) return Icons.bedtime;
-    if (month <= 5) return Icons.sentiment_satisfied_alt;
-    if (month <= 8) return Icons.toys;
-    if (month <= 10) return Icons.child_care;
-    return Icons.directions_walk;
+    if (month == 0) return Icons.child_friendly;
+    if (month <= 2) return Icons.baby_changing_station;
+    if (month <= 4) return Icons.smart_toy;
+    if (month <= 6) return Icons.airline_seat_recline_normal;
+    if (month <= 8) return Icons.emoji_emotions;
+    if (month <= 10) return Icons.toys;
+    return Icons.accessibility_new;
+  }
+
+  String _milestoneForMonth(int month) {
+    const milestones = <int, String>{
+      0: 'Can startle, turn head toward sounds, and focus on faces.',
+      1: 'Can briefly lift head during tummy time and track nearby faces.',
+      2: 'Can smile socially and hold head a little steadier.',
+      3: 'Can raise chest while on tummy and follow moving objects.',
+      4: 'Can hold head steady and may roll from tummy to back.',
+      5: 'Can roll both ways and show stronger hand-to-mouth control.',
+      6: 'Can sit with support and respond to own name.',
+      7: 'Can sit briefly without support and transfer toys hand-to-hand.',
+      8: 'Can crawl/creep in some babies and explore objects actively.',
+      9: 'Can pull to stand and use sounds like “mamama/bababa”.',
+      10: 'Can cruise along furniture and use pincer grasp better.',
+      11: 'Can stand with support and imitate simple actions.',
+      12: 'Can take first steps in some babies and follow simple commands.',
+    };
+    return milestones[month] ?? 'Can keep developing movement, language, and social interaction skills.';
   }
 }
 
@@ -1357,9 +1411,10 @@ class _WeightChartCard extends StatelessWidget {
     final minValue = allChartValues.reduce(min);
     final maxValue = allChartValues.reduce(max);
     final midValue = (minValue + maxValue) / 2;
-    final interval = max(0.2, (maxValue - minValue) / 2);
-    final chartMinY = minValue - interval;
-    final chartMaxY = maxValue + interval;
+    final hasRange = (maxValue - minValue).abs() > 0.001;
+    final interval = hasRange ? (maxValue - minValue) / 2 : 0.2;
+    final chartMinY = hasRange ? minValue : minValue - 0.5;
+    final chartMaxY = hasRange ? maxValue : maxValue + 0.5;
     final chartWidth = max(680.0, entries.length * 90.0);
 
     return Card(
@@ -1383,6 +1438,7 @@ class _WeightChartCard extends StatelessWidget {
                       maxX: entries.length - 0.8,
                       minY: chartMinY,
                       maxY: chartMaxY,
+                      clipData: const FlClipData(top: false, bottom: false, left: false, right: false),
                       gridData: const FlGridData(show: true),
                       titlesData: FlTitlesData(
                         leftTitles: AxisTitles(
@@ -1520,9 +1576,10 @@ class _HeightChartCard extends StatelessWidget {
     final minValue = allChartValues.reduce(min);
     final maxValue = allChartValues.reduce(max);
     final midValue = (minValue + maxValue) / 2;
-    final interval = max(0.2, (maxValue - minValue) / 2);
-    final chartMinY = minValue - interval;
-    final chartMaxY = maxValue + interval;
+    final hasRange = (maxValue - minValue).abs() > 0.001;
+    final interval = hasRange ? (maxValue - minValue) / 2 : 0.2;
+    final chartMinY = hasRange ? minValue : minValue - 0.5;
+    final chartMaxY = hasRange ? maxValue : maxValue + 0.5;
     final chartWidth = max(680.0, entries.length * 90.0);
 
     return Card(
@@ -1546,6 +1603,7 @@ class _HeightChartCard extends StatelessWidget {
                       maxX: entries.length - 0.8,
                       minY: chartMinY,
                       maxY: chartMaxY,
+                      clipData: const FlClipData(top: false, bottom: false, left: false, right: false),
                       gridData: const FlGridData(show: true),
                       titlesData: FlTitlesData(
                         leftTitles: AxisTitles(
