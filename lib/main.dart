@@ -42,12 +42,18 @@ enum WeightUnit { kg, lbs }
 
 enum HeightUnit { cm, ft }
 
+enum ProfileGender { male, female }
+
 extension WeightUnitX on WeightUnit {
   String get label => this == WeightUnit.kg ? 'kg' : 'lbs';
 }
 
 extension HeightUnitX on HeightUnit {
   String get label => this == HeightUnit.cm ? 'cm' : 'ft';
+}
+
+extension ProfileGenderX on ProfileGender {
+  String get label => this == ProfileGender.male ? 'Male' : 'Female';
 }
 
 class UnitConverter {
@@ -126,6 +132,7 @@ class GrowthProfile {
     required this.id,
     required this.name,
     required this.purpose,
+    required this.gender,
     required this.birthDate,
     required this.weightUnit,
     required this.heightUnit,
@@ -135,6 +142,7 @@ class GrowthProfile {
   final int id;
   final String name;
   final String purpose;
+  final ProfileGender gender;
   final DateTime birthDate;
   final WeightUnit weightUnit;
   final HeightUnit heightUnit;
@@ -219,6 +227,7 @@ class CreateProfileInput {
   const CreateProfileInput({
     required this.name,
     required this.purpose,
+    required this.gender,
     required this.birthDate,
     required this.weightUnit,
     required this.heightUnit,
@@ -228,6 +237,7 @@ class CreateProfileInput {
 
   final String name;
   final String purpose;
+  final ProfileGender gender;
   final DateTime birthDate;
   final WeightUnit weightUnit;
   final HeightUnit heightUnit;
@@ -250,7 +260,7 @@ class ProfileRepository {
 
     _db = await openDatabase(
       fullPath,
-      version: 2,
+      version: 3,
       onCreate: (db, version) async {
         await _createTables(db);
       },
@@ -268,6 +278,7 @@ class ProfileRepository {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
         purpose TEXT NOT NULL,
+        gender TEXT NOT NULL,
         birth_date TEXT NOT NULL,
         weight_unit TEXT NOT NULL,
         height_unit TEXT NOT NULL,
@@ -310,6 +321,7 @@ class ProfileRepository {
             id: row['id'] as int,
             name: row['name'] as String,
             purpose: row['purpose'] as String,
+            gender: (row['gender'] as String) == 'female' ? ProfileGender.female : ProfileGender.male,
             birthDate: DateTime.parse(row['birth_date'] as String),
             weightUnit: (row['weight_unit'] as String) == 'lbs' ? WeightUnit.lbs : WeightUnit.kg,
             heightUnit: (row['height_unit'] as String) == 'ft' ? HeightUnit.ft : HeightUnit.cm,
@@ -325,6 +337,7 @@ class ProfileRepository {
       final profileId = await txn.insert('profiles', {
         'name': input.name,
         'purpose': input.purpose,
+        'gender': input.gender.name,
         'birth_date': input.birthDate.toIso8601String(),
         'weight_unit': input.weightUnit.label,
         'height_unit': input.heightUnit.label,
@@ -366,6 +379,7 @@ class ProfileRepository {
     required int profileId,
     required String name,
     required String purpose,
+    required ProfileGender gender,
     required DateTime birthDate,
     required WeightUnit weightUnit,
     required HeightUnit heightUnit,
@@ -375,6 +389,7 @@ class ProfileRepository {
       {
         'name': name,
         'purpose': purpose,
+        'gender': gender.name,
         'birth_date': birthDate.toIso8601String(),
         'weight_unit': weightUnit.label,
         'height_unit': heightUnit.label,
@@ -531,6 +546,7 @@ class TrackerDashboard extends StatelessWidget {
                           profileId: profile.id,
                           name: input.name,
                           purpose: input.purpose,
+                          gender: input.gender,
                           birthDate: input.birthDate,
                           weightUnit: input.weightUnit,
                           heightUnit: input.heightUnit,
@@ -701,6 +717,7 @@ class _CreateProfileFormState extends State<CreateProfileForm> {
   DateTime? _birthDate;
   WeightUnit _weightUnit = WeightUnit.kg;
   HeightUnit _heightUnit = HeightUnit.cm;
+  ProfileGender? _gender;
   String? _purpose;
   bool _saving = false;
 
@@ -733,6 +750,17 @@ class _CreateProfileFormState extends State<CreateProfileForm> {
                 if (value != null) setState(() => _purpose = value);
               },
               validator: _required,
+            ),
+            const SizedBox(height: 8),
+            DropdownButtonFormField<ProfileGender>(
+              value: _gender,
+              hint: const Text('Select gender'),
+              decoration: const InputDecoration(labelText: 'Gender'),
+              items: ProfileGender.values
+                  .map((item) => DropdownMenuItem(value: item, child: Text(item.label)))
+                  .toList(),
+              onChanged: (value) => setState(() => _gender = value),
+              validator: (value) => value == null ? 'Required' : null,
             ),
             const SizedBox(height: 8),
             ListTile(
@@ -807,7 +835,7 @@ class _CreateProfileFormState extends State<CreateProfileForm> {
                   ? null
                   : () async {
                       if (!_formKey.currentState!.validate()) return;
-                      if (_birthDate == null || _purpose == null) {
+                      if (_birthDate == null || _purpose == null || _gender == null) {
                         setState(() {});
                         return;
                       }
@@ -816,6 +844,7 @@ class _CreateProfileFormState extends State<CreateProfileForm> {
                         CreateProfileInput(
                           name: _nameController.text.trim(),
                           purpose: _purpose!,
+                          gender: _gender!,
                           birthDate: _birthDate!,
                           weightUnit: _weightUnit,
                           heightUnit: _heightUnit,
@@ -880,6 +909,7 @@ class ProfileOverviewCard extends StatelessWidget {
                   ? 'Age: ${AgeDisplayFormatter.babyMonthsAndDays(profile.birthDate)}'
                   : 'Age: ${AgeDisplayFormatter.wholeYears(profile.birthDate)} years old',
             ),
+            Text('Gender: ${profile.gender.label}'),
             const SizedBox(height: 10),
             Wrap(
               spacing: 16,
@@ -937,36 +967,40 @@ class AdultBmiInsight {
   final double weightToLoseKg;
 }
 
-AdultBmiInsight classifyAdultBmi(MetricEntry entry) {
+AdultBmiInsight classifyAdultBmi(MetricEntry entry, {required ProfileGender gender}) {
   final bmi = entry.bmi;
   if (bmi == null) {
     return const AdultBmiInsight(label: 'Not available', color: Colors.blueGrey, weightToLoseKg: 0);
   }
 
+  final overweightThreshold = gender == ProfileGender.female ? 24.0 : 25.0;
+  final obesityThreshold = gender == ProfileGender.female ? 29.0 : 30.0;
+
   if (bmi < 18.5) {
     return const AdultBmiInsight(label: 'Underweight', color: Colors.lightBlue, weightToLoseKg: 0);
   }
-  if (bmi < 25) {
+  if (bmi < overweightThreshold) {
     return const AdultBmiInsight(label: 'Normal', color: Colors.green, weightToLoseKg: 0);
   }
-  if (bmi < 30) {
+  if (bmi < obesityThreshold) {
     return AdultBmiInsight(
       label: 'Overweight',
       color: Colors.orange,
-      weightToLoseKg: _weightToReachBmiUpperNormal(entry),
+      weightToLoseKg: _weightToReachBmiUpperNormal(entry, gender: gender),
     );
   }
   return AdultBmiInsight(
     label: 'Obese',
     color: Colors.red,
-    weightToLoseKg: _weightToReachBmiUpperNormal(entry),
+    weightToLoseKg: _weightToReachBmiUpperNormal(entry, gender: gender),
   );
 }
 
-double _weightToReachBmiUpperNormal(MetricEntry entry) {
+double _weightToReachBmiUpperNormal(MetricEntry entry, {required ProfileGender gender}) {
   if (entry.weightKg == null || entry.heightCm == null || entry.heightCm == 0) return 0;
   final heightM = entry.heightCm! / 100;
-  final targetWeight = 24.9 * heightM * heightM;
+  final targetBmi = gender == ProfileGender.female ? 23.9 : 24.9;
+  final targetWeight = targetBmi * heightM * heightM;
   return max(0, entry.weightKg! - targetWeight);
 }
 
@@ -982,7 +1016,8 @@ class AgeBasedInsightCard extends StatelessWidget {
     final isAdultProfile = ageInYears >= 18;
     final latest = profile.latest;
     final babySummary = BabyGrowthReference.summaryFor(profile);
-    final adultInsight = (isAdultProfile && latest?.bmi != null) ? classifyAdultBmi(latest!) : null;
+    final adultInsight =
+        (isAdultProfile && latest?.bmi != null) ? classifyAdultBmi(latest!, gender: profile.gender) : null;
     final loseWeightDisplay = latest == null
         ? null
         : UnitConverter.toDisplayWeight(adultInsight?.weightToLoseKg ?? 0, profile.weightUnit);
@@ -1035,7 +1070,7 @@ class AgeBasedInsightCard extends StatelessWidget {
               const Divider(height: 1),
               const SizedBox(height: 10),
               Text(
-                'Baby growth summary (${babySummary.ageLabel})',
+                'Baby growth summary (${profile.gender.label}, ${babySummary.ageLabel})',
                 style: Theme.of(context).textTheme.titleSmall,
               ),
               const SizedBox(height: 8),
@@ -1185,7 +1220,7 @@ class _BabyMonthlyProgressCarouselState extends State<_BabyMonthlyProgressCarous
         ),
         const SizedBox(height: 4),
         Text(
-          'Swipe left/right to explore expected development for each month.',
+          'Swipe left/right to explore expected development for each month (${widget.profile.gender.label} reference).',
           style: Theme.of(context).textTheme.bodySmall,
         ),
         const SizedBox(height: 8),
@@ -1258,27 +1293,51 @@ class _BabyMonthCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final milestone = _milestoneForMonth(month);
     final minWeight = UnitConverter.toDisplayWeight(
-      BabyGrowthReference.referenceWeightKgForAge(month.toDouble(), band: GrowthBand.lowerBound),
+      BabyGrowthReference.referenceWeightKgForAge(
+        month.toDouble(),
+        band: GrowthBand.lowerBound,
+        gender: profile.gender,
+      ),
       profile.weightUnit,
     );
     final avgWeight = UnitConverter.toDisplayWeight(
-      BabyGrowthReference.referenceWeightKgForAge(month.toDouble(), band: GrowthBand.median),
+      BabyGrowthReference.referenceWeightKgForAge(
+        month.toDouble(),
+        band: GrowthBand.median,
+        gender: profile.gender,
+      ),
       profile.weightUnit,
     );
     final maxWeight = UnitConverter.toDisplayWeight(
-      BabyGrowthReference.referenceWeightKgForAge(month.toDouble(), band: GrowthBand.upperBound),
+      BabyGrowthReference.referenceWeightKgForAge(
+        month.toDouble(),
+        band: GrowthBand.upperBound,
+        gender: profile.gender,
+      ),
       profile.weightUnit,
     );
     final minHeight = UnitConverter.toDisplayHeight(
-      BabyGrowthReference.referenceHeightCmForAge(month.toDouble(), band: GrowthBand.lowerBound),
+      BabyGrowthReference.referenceHeightCmForAge(
+        month.toDouble(),
+        band: GrowthBand.lowerBound,
+        gender: profile.gender,
+      ),
       profile.heightUnit,
     );
     final avgHeight = UnitConverter.toDisplayHeight(
-      BabyGrowthReference.referenceHeightCmForAge(month.toDouble(), band: GrowthBand.median),
+      BabyGrowthReference.referenceHeightCmForAge(
+        month.toDouble(),
+        band: GrowthBand.median,
+        gender: profile.gender,
+      ),
       profile.heightUnit,
     );
     final maxHeight = UnitConverter.toDisplayHeight(
-      BabyGrowthReference.referenceHeightCmForAge(month.toDouble(), band: GrowthBand.upperBound),
+      BabyGrowthReference.referenceHeightCmForAge(
+        month.toDouble(),
+        band: GrowthBand.upperBound,
+        gender: profile.gender,
+      ),
       profile.heightUnit,
     );
 
@@ -1332,7 +1391,7 @@ class _BabyMonthCard extends StatelessWidget {
           ),
           const Spacer(),
           Text(
-            'Expected WHO progress for this month',
+            'Expected WHO progress for this month (${profile.gender.label})',
             style: Theme.of(context).textTheme.bodySmall,
           ),
         ],
@@ -1538,7 +1597,11 @@ class _WeightChartCard extends StatelessWidget {
         FlSpot(
           i.toDouble(),
           UnitConverter.toDisplayWeight(
-            BabyGrowthReference.referenceWeightKgForAge(ageMonths[i], band: band),
+            BabyGrowthReference.referenceWeightKgForAge(
+              ageMonths[i],
+              band: band,
+              gender: profile.gender,
+            ),
             profile.weightUnit,
           ),
         ),
@@ -1684,7 +1747,11 @@ class _HeightChartCard extends StatelessWidget {
         FlSpot(
           i.toDouble(),
           UnitConverter.toDisplayHeight(
-            BabyGrowthReference.referenceHeightCmForAge(ageMonths[i], band: band),
+            BabyGrowthReference.referenceHeightCmForAge(
+              ageMonths[i],
+              band: band,
+              gender: profile.gender,
+            ),
             profile.heightUnit,
           ),
         ),
@@ -2020,6 +2087,7 @@ class _EditProfileFormState extends State<EditProfileForm> {
   final _formKey = GlobalKey<FormState>();
   late final TextEditingController _nameController;
   late String _purpose;
+  late ProfileGender _gender;
   late DateTime _birthDate;
   late WeightUnit _weightUnit;
   late HeightUnit _heightUnit;
@@ -2030,6 +2098,7 @@ class _EditProfileFormState extends State<EditProfileForm> {
     super.initState();
     _nameController = TextEditingController(text: widget.profile.name);
     _purpose = widget.profile.purpose;
+    _gender = widget.profile.gender;
     _birthDate = widget.profile.birthDate;
     _weightUnit = widget.profile.weightUnit;
     _heightUnit = widget.profile.heightUnit;
@@ -2057,6 +2126,17 @@ class _EditProfileFormState extends State<EditProfileForm> {
                   .toList(),
               onChanged: (value) {
                 if (value != null) setState(() => _purpose = value);
+              },
+            ),
+            const SizedBox(height: 8),
+            DropdownButtonFormField<ProfileGender>(
+              value: _gender,
+              decoration: const InputDecoration(labelText: 'Gender'),
+              items: ProfileGender.values
+                  .map((item) => DropdownMenuItem(value: item, child: Text(item.label)))
+                  .toList(),
+              onChanged: (value) {
+                if (value != null) setState(() => _gender = value);
               },
             ),
             ListTile(
@@ -2102,6 +2182,7 @@ class _EditProfileFormState extends State<EditProfileForm> {
                         CreateProfileInput(
                           name: _nameController.text.trim(),
                           purpose: _purpose,
+                          gender: _gender,
                           birthDate: _birthDate,
                           weightUnit: _weightUnit,
                           heightUnit: _heightUnit,
@@ -2152,83 +2233,156 @@ class BabyGrowthSnapshot {
 enum GrowthBand { lowerBound, median, upperBound }
 
 class BabyGrowthReference {
-  static const _snapshots = <int, BabyGrowthSnapshot>{
-    0: BabyGrowthSnapshot(
-      minWeightKg: 2.5,
-      avgWeightKg: 3.3,
-      maxWeightKg: 4.4,
-      minHeightCm: 46.0,
-      avgHeightCm: 50.0,
-      maxHeightCm: 54.0,
-      ageLabel: 'newborn',
-    ),
-    3: BabyGrowthSnapshot(
-      minWeightKg: 4.8,
-      avgWeightKg: 6.0,
-      maxWeightKg: 7.6,
-      minHeightCm: 57.0,
-      avgHeightCm: 61.0,
-      maxHeightCm: 65.0,
-      ageLabel: '3 months',
-    ),
-    6: BabyGrowthSnapshot(
-      minWeightKg: 6.4,
-      avgWeightKg: 7.9,
-      maxWeightKg: 9.8,
-      minHeightCm: 63.0,
-      avgHeightCm: 67.0,
-      maxHeightCm: 71.0,
-      ageLabel: '6 months',
-    ),
-    9: BabyGrowthSnapshot(
-      minWeightKg: 7.2,
-      avgWeightKg: 8.9,
-      maxWeightKg: 11.1,
-      minHeightCm: 67.0,
-      avgHeightCm: 72.0,
-      maxHeightCm: 76.0,
-      ageLabel: '9 months',
-    ),
-    12: BabyGrowthSnapshot(
-      minWeightKg: 7.8,
-      avgWeightKg: 9.6,
-      maxWeightKg: 12.0,
-      minHeightCm: 71.0,
-      avgHeightCm: 76.0,
-      maxHeightCm: 81.0,
-      ageLabel: '12 months',
-    ),
-    18: BabyGrowthSnapshot(
-      minWeightKg: 8.8,
-      avgWeightKg: 11.0,
-      maxWeightKg: 13.8,
-      minHeightCm: 76.0,
-      avgHeightCm: 82.0,
-      maxHeightCm: 88.0,
-      ageLabel: '18 months',
-    ),
-    24: BabyGrowthSnapshot(
-      minWeightKg: 9.7,
-      avgWeightKg: 12.3,
-      maxWeightKg: 15.5,
-      minHeightCm: 81.0,
-      avgHeightCm: 87.0,
-      maxHeightCm: 93.0,
-      ageLabel: '24 months',
-    ),
+  static const _snapshots = <ProfileGender, Map<int, BabyGrowthSnapshot>>{
+    ProfileGender.male: {
+      0: BabyGrowthSnapshot(
+        minWeightKg: 2.6,
+        avgWeightKg: 3.4,
+        maxWeightKg: 4.5,
+        minHeightCm: 46.5,
+        avgHeightCm: 50.5,
+        maxHeightCm: 54.5,
+        ageLabel: 'newborn',
+      ),
+      3: BabyGrowthSnapshot(
+        minWeightKg: 5.0,
+        avgWeightKg: 6.4,
+        maxWeightKg: 7.9,
+        minHeightCm: 58.0,
+        avgHeightCm: 62.0,
+        maxHeightCm: 66.0,
+        ageLabel: '3 months',
+      ),
+      6: BabyGrowthSnapshot(
+        minWeightKg: 6.7,
+        avgWeightKg: 8.1,
+        maxWeightKg: 9.9,
+        minHeightCm: 64.0,
+        avgHeightCm: 68.0,
+        maxHeightCm: 72.0,
+        ageLabel: '6 months',
+      ),
+      9: BabyGrowthSnapshot(
+        minWeightKg: 7.5,
+        avgWeightKg: 9.1,
+        maxWeightKg: 11.2,
+        minHeightCm: 68.0,
+        avgHeightCm: 73.0,
+        maxHeightCm: 77.0,
+        ageLabel: '9 months',
+      ),
+      12: BabyGrowthSnapshot(
+        minWeightKg: 8.1,
+        avgWeightKg: 9.9,
+        maxWeightKg: 12.2,
+        minHeightCm: 72.0,
+        avgHeightCm: 77.0,
+        maxHeightCm: 82.0,
+        ageLabel: '12 months',
+      ),
+      18: BabyGrowthSnapshot(
+        minWeightKg: 9.2,
+        avgWeightKg: 11.4,
+        maxWeightKg: 14.1,
+        minHeightCm: 77.0,
+        avgHeightCm: 83.0,
+        maxHeightCm: 89.0,
+        ageLabel: '18 months',
+      ),
+      24: BabyGrowthSnapshot(
+        minWeightKg: 10.1,
+        avgWeightKg: 12.7,
+        maxWeightKg: 15.9,
+        minHeightCm: 82.0,
+        avgHeightCm: 88.0,
+        maxHeightCm: 94.0,
+        ageLabel: '24 months',
+      ),
+    },
+    ProfileGender.female: {
+      0: BabyGrowthSnapshot(
+        minWeightKg: 2.4,
+        avgWeightKg: 3.2,
+        maxWeightKg: 4.2,
+        minHeightCm: 45.8,
+        avgHeightCm: 49.5,
+        maxHeightCm: 53.5,
+        ageLabel: 'newborn',
+      ),
+      3: BabyGrowthSnapshot(
+        minWeightKg: 4.6,
+        avgWeightKg: 5.8,
+        maxWeightKg: 7.2,
+        minHeightCm: 56.5,
+        avgHeightCm: 60.0,
+        maxHeightCm: 64.0,
+        ageLabel: '3 months',
+      ),
+      6: BabyGrowthSnapshot(
+        minWeightKg: 6.1,
+        avgWeightKg: 7.4,
+        maxWeightKg: 9.2,
+        minHeightCm: 62.0,
+        avgHeightCm: 65.7,
+        maxHeightCm: 70.0,
+        ageLabel: '6 months',
+      ),
+      9: BabyGrowthSnapshot(
+        minWeightKg: 6.8,
+        avgWeightKg: 8.3,
+        maxWeightKg: 10.5,
+        minHeightCm: 66.0,
+        avgHeightCm: 70.5,
+        maxHeightCm: 75.0,
+        ageLabel: '9 months',
+      ),
+      12: BabyGrowthSnapshot(
+        minWeightKg: 7.4,
+        avgWeightKg: 9.0,
+        maxWeightKg: 11.5,
+        minHeightCm: 70.0,
+        avgHeightCm: 74.5,
+        maxHeightCm: 79.0,
+        ageLabel: '12 months',
+      ),
+      18: BabyGrowthSnapshot(
+        minWeightKg: 8.4,
+        avgWeightKg: 10.3,
+        maxWeightKg: 13.3,
+        minHeightCm: 75.0,
+        avgHeightCm: 80.5,
+        maxHeightCm: 86.5,
+        ageLabel: '18 months',
+      ),
+      24: BabyGrowthSnapshot(
+        minWeightKg: 9.3,
+        avgWeightKg: 11.7,
+        maxWeightKg: 15.0,
+        minHeightCm: 80.0,
+        avgHeightCm: 86.0,
+        maxHeightCm: 92.0,
+        ageLabel: '24 months',
+      ),
+    },
   };
 
   static BabyGrowthSnapshot? summaryFor(GrowthProfile profile) {
     if (profile.ageInMonths > 24) return null;
-    final nearestMonth = _snapshots.keys.reduce(
+    final snapshots = _snapshots[profile.gender]!;
+    final nearestMonth = snapshots.keys.reduce(
       (a, b) => (profile.ageInMonths - a).abs() <= (profile.ageInMonths - b).abs() ? a : b,
     );
-    return _snapshots[nearestMonth];
+    return snapshots[nearestMonth];
   }
 
-  static double referenceHeightCmForAge(double ageInMonths, {required GrowthBand band}) {
-    if (_snapshots.isEmpty) return 0;
-    final keys = _snapshots.keys.toList()..sort();
+  static double referenceHeightCmForAge(
+    double ageInMonths, {
+    required GrowthBand band,
+    required ProfileGender gender,
+  }) {
+    final snapshots = _snapshots[gender]!;
+    if (snapshots.isEmpty) return 0;
+    final keys = snapshots.keys.toList()..sort();
     final clampedMonth = ageInMonths.clamp(keys.first.toDouble(), keys.last.toDouble());
     var lowerMonth = keys.first;
     var upperMonth = keys.last;
@@ -2252,8 +2406,8 @@ class BabyGrowthReference {
       }
     }
 
-    final lowerSnapshot = _snapshots[lowerMonth]!;
-    final upperSnapshot = _snapshots[upperMonth]!;
+    final lowerSnapshot = snapshots[lowerMonth]!;
+    final upperSnapshot = snapshots[upperMonth]!;
     if (lowerMonth == upperMonth) return valueFor(lowerSnapshot);
     final t = (clampedMonth - lowerMonth) / (upperMonth - lowerMonth);
     final lowerValue = valueFor(lowerSnapshot);
@@ -2261,9 +2415,14 @@ class BabyGrowthReference {
     return lowerValue + (upperValue - lowerValue) * t;
   }
 
-  static double referenceWeightKgForAge(double ageInMonths, {required GrowthBand band}) {
-    if (_snapshots.isEmpty) return 0;
-    final keys = _snapshots.keys.toList()..sort();
+  static double referenceWeightKgForAge(
+    double ageInMonths, {
+    required GrowthBand band,
+    required ProfileGender gender,
+  }) {
+    final snapshots = _snapshots[gender]!;
+    if (snapshots.isEmpty) return 0;
+    final keys = snapshots.keys.toList()..sort();
     final clampedMonth = ageInMonths.clamp(keys.first.toDouble(), keys.last.toDouble());
     var lowerMonth = keys.first;
     var upperMonth = keys.last;
@@ -2287,8 +2446,8 @@ class BabyGrowthReference {
       }
     }
 
-    final lowerSnapshot = _snapshots[lowerMonth]!;
-    final upperSnapshot = _snapshots[upperMonth]!;
+    final lowerSnapshot = snapshots[lowerMonth]!;
+    final upperSnapshot = snapshots[upperMonth]!;
     if (lowerMonth == upperMonth) return valueFor(lowerSnapshot);
     final t = (clampedMonth - lowerMonth) / (upperMonth - lowerMonth);
     final lowerValue = valueFor(lowerSnapshot);
@@ -2297,12 +2456,13 @@ class BabyGrowthReference {
   }
 
   static BabyGrowthSnapshot? _snapshotForDate(GrowthProfile profile, DateTime measuredDate) {
+    final snapshots = _snapshots[profile.gender]!;
     final ageInMonths = AgeDisplayFormatter.monthsBetween(profile.birthDate, measuredDate);
     if (ageInMonths > 24) return null;
-    final nearestMonth = _snapshots.keys.reduce(
+    final nearestMonth = snapshots.keys.reduce(
       (a, b) => (ageInMonths - a).abs() <= (ageInMonths - b).abs() ? a : b,
     );
-    return _snapshots[nearestMonth];
+    return snapshots[nearestMonth];
   }
 
   static String weightPercentileLabel(GrowthProfile profile, MetricEntry entry) {
@@ -2323,14 +2483,14 @@ class BabyGrowthReference {
     if (measured == null) return null;
 
     final p3 = isWeight
-        ? referenceWeightKgForAge(ageInMonths, band: GrowthBand.lowerBound)
-        : referenceHeightCmForAge(ageInMonths, band: GrowthBand.lowerBound);
+        ? referenceWeightKgForAge(ageInMonths, band: GrowthBand.lowerBound, gender: profile.gender)
+        : referenceHeightCmForAge(ageInMonths, band: GrowthBand.lowerBound, gender: profile.gender);
     final p50 = isWeight
-        ? referenceWeightKgForAge(ageInMonths, band: GrowthBand.median)
-        : referenceHeightCmForAge(ageInMonths, band: GrowthBand.median);
+        ? referenceWeightKgForAge(ageInMonths, band: GrowthBand.median, gender: profile.gender)
+        : referenceHeightCmForAge(ageInMonths, band: GrowthBand.median, gender: profile.gender);
     final p97 = isWeight
-        ? referenceWeightKgForAge(ageInMonths, band: GrowthBand.upperBound)
-        : referenceHeightCmForAge(ageInMonths, band: GrowthBand.upperBound);
+        ? referenceWeightKgForAge(ageInMonths, band: GrowthBand.upperBound, gender: profile.gender)
+        : referenceHeightCmForAge(ageInMonths, band: GrowthBand.upperBound, gender: profile.gender);
 
     if (measured <= p3) return 3;
     if (measured >= p97) return 97;
@@ -2391,6 +2551,6 @@ class BabyGrowthReference {
       asOf: entry.date,
     );
     final detailText = details.isEmpty ? '' : '\n\n${details.join('\n')}';
-    return '$reason$detailText\n\nReference age band: ${snapshot.ageLabel} (measured at $measuredAge).\n\nThese references are aligned to WHO Child Growth Standards for ages 0-24 months and are for guidance only. If you are concerned, consult your pediatrician.';
+    return '$reason$detailText\n\nReference age band: ${snapshot.ageLabel} (measured at $measuredAge, ${profile.gender.label} reference).\n\nThese references are aligned to WHO Child Growth Standards for ages 0-24 months and are for guidance only. If you are concerned, consult your pediatrician.';
   }
 }
