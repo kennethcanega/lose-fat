@@ -698,10 +698,10 @@ class _CreateProfileFormState extends State<CreateProfileForm> {
   final _nameController = TextEditingController();
   final _weightController = TextEditingController();
   final _heightController = TextEditingController();
-  DateTime _birthDate = DateTime.now();
+  DateTime? _birthDate;
   WeightUnit _weightUnit = WeightUnit.kg;
   HeightUnit _heightUnit = HeightUnit.cm;
-  String _purpose = purposeOptions.first;
+  String? _purpose;
   bool _saving = false;
 
   @override
@@ -724,6 +724,7 @@ class _CreateProfileFormState extends State<CreateProfileForm> {
             const SizedBox(height: 8),
             DropdownButtonFormField<String>(
               value: _purpose,
+              hint: const Text('Select purpose'),
               decoration: const InputDecoration(labelText: 'Purpose'),
               items: purposeOptions
                   .map((item) => DropdownMenuItem(value: item, child: Text(item)))
@@ -731,19 +732,27 @@ class _CreateProfileFormState extends State<CreateProfileForm> {
               onChanged: (value) {
                 if (value != null) setState(() => _purpose = value);
               },
+              validator: _required,
             ),
             const SizedBox(height: 8),
             ListTile(
               contentPadding: EdgeInsets.zero,
               title: const Text('Birth date'),
-              subtitle: Text(_birthDateFormatter.format(_birthDate)),
+              subtitle: Text(
+                _birthDate == null ? 'Required' : _birthDateFormatter.format(_birthDate!),
+              ),
+              subtitleTextStyle: TextStyle(
+                color: _birthDate == null
+                    ? Theme.of(context).colorScheme.error
+                    : Theme.of(context).textTheme.bodyMedium?.color,
+              ),
               trailing: const Icon(Icons.calendar_month),
               onTap: () async {
                 final picked = await showDatePicker(
                   context: context,
                   firstDate: DateTime(1900),
                   lastDate: DateTime.now(),
-                  initialDate: _birthDate,
+                  initialDate: _birthDate ?? DateTime.now(),
                 );
                 if (picked != null) setState(() => _birthDate = picked);
               },
@@ -798,12 +807,16 @@ class _CreateProfileFormState extends State<CreateProfileForm> {
                   ? null
                   : () async {
                       if (!_formKey.currentState!.validate()) return;
+                      if (_birthDate == null || _purpose == null) {
+                        setState(() {});
+                        return;
+                      }
                       setState(() => _saving = true);
                       await widget.onSubmit(
                         CreateProfileInput(
                           name: _nameController.text.trim(),
-                          purpose: _purpose,
-                          birthDate: _birthDate,
+                          purpose: _purpose!,
+                          birthDate: _birthDate!,
                           weightUnit: _weightUnit,
                           heightUnit: _heightUnit,
                           initialWeight: _parseOptional(_weightController.text),
