@@ -63,3 +63,7 @@ flutter build ios --release
 
 - `lib/main.dart`: main app, models, profile management, charts, and entry forms.
 - `pubspec.yaml`: dependencies and Flutter configuration.
+
+## App icon source
+
+- The launcher/app icons are generated from `assets/APP_ICON.png`, which is also used by the navbar logo badge in the app UI.
