@@ -164,6 +164,33 @@ class GrowthProfile {
   }
 }
 
+class AgeDisplayFormatter {
+  static String yearsWithTwoDecimals(DateTime birthDate, {DateTime? asOf}) {
+    final date = asOf ?? DateTime.now();
+    final months = _monthsBetween(birthDate, date);
+    return (months / 12).toStringAsFixed(2);
+  }
+
+  static String babyMonthsAndDays(DateTime birthDate, {DateTime? asOf}) {
+    final date = asOf ?? DateTime.now();
+    final months = _monthsBetween(birthDate, date);
+    final monthAnchor = DateTime(birthDate.year, birthDate.month + months, birthDate.day);
+    final days = date.difference(monthAnchor).inDays.clamp(0, 31);
+    final monthLabel = months == 1 ? 'month' : 'months';
+    final dayLabel = days == 1 ? 'day' : 'days';
+    return '$months $monthLabel and $days $dayLabel';
+  }
+
+  static int monthsBetween(DateTime from, DateTime to) => _monthsBetween(from, to);
+
+  static int _monthsBetween(DateTime from, DateTime to) {
+    if (to.isBefore(from)) return 0;
+    var months = (to.year - from.year) * 12 + to.month - from.month;
+    if (to.day < from.day) months -= 1;
+    return months.clamp(0, 1000);
+  }
+}
+
 class MetricEntry {
   const MetricEntry({
     required this.id,
@@ -772,7 +799,11 @@ class ProfileOverviewCard extends StatelessWidget {
             Text(profile.name, style: Theme.of(context).textTheme.titleLarge),
             Text('Purpose: ${profile.purpose}'),
             Text('Birth date: ${DateFormat('MM/dd/yy').format(profile.birthDate)}'),
-            Text('Age: ${profile.ageInYears.toStringAsFixed(2)} years'),
+            Text(
+              profile.ageInYears < 1
+                  ? 'Age: ${AgeDisplayFormatter.babyMonthsAndDays(profile.birthDate)}'
+                  : 'Age: ${AgeDisplayFormatter.yearsWithTwoDecimals(profile.birthDate)} years',
+            ),
             const SizedBox(height: 10),
             Wrap(
               spacing: 16,
@@ -1230,7 +1261,7 @@ class EntriesTable extends StatelessWidget {
     showDialog<void>(
       context: context,
       builder: (_) => AlertDialog(
-        title: const Text('Entry color explanation'),
+        title: const Text('Explanation'),
         content: Text(explanation),
         actions: [
           TextButton(
@@ -1577,9 +1608,17 @@ class BabyGrowthReference {
     return _snapshots[nearestMonth];
   }
 
+  static BabyGrowthSnapshot? _snapshotForDate(GrowthProfile profile, DateTime measuredDate) {
+    final ageInMonths = AgeDisplayFormatter.monthsBetween(profile.birthDate, measuredDate);
+    if (ageInMonths > 24) return null;
+    final nearestMonth = _snapshots.keys.reduce(
+      (a, b) => (ageInMonths - a).abs() <= (ageInMonths - b).abs() ? a : b,
+    );
+    return _snapshots[nearestMonth];
+  }
+
   static Color colorForEntry(GrowthProfile profile, MetricEntry entry) {
-    if (profile.ageInMonths > 24) return Colors.blueGrey;
-    final snapshot = summaryFor(profile);
+    final snapshot = _snapshotForDate(profile, entry.date);
     if (snapshot == null) return Colors.blueGrey;
 
     final weight = entry.weightKg;
@@ -1595,27 +1634,38 @@ class BabyGrowthReference {
   }
 
   static String explainEntry(GrowthProfile profile, MetricEntry entry) {
-    final snapshot = summaryFor(profile);
+    final snapshot = _snapshotForDate(profile, entry.date);
     if (snapshot == null) {
-      return 'Color is neutral because baby growth reference summaries are shown for profiles up to 24 months old.';
+      return 'This entry is shown as neutral because baby growth reference ranges are used through 24 months of age.';
     }
 
     final weight = entry.weightKg;
     final height = entry.heightCm;
-    final weightText = weight == null
-        ? 'Weight not provided.'
-        : 'Weight is ${weight.toStringAsFixed(1)} kg; expected range is ${snapshot.minWeightKg.toStringAsFixed(1)}-${snapshot.maxWeightKg.toStringAsFixed(1)} kg.';
-    final heightText = height == null
-        ? 'Height not provided.'
-        : 'Height is ${height.toStringAsFixed(1)} cm; expected range is ${snapshot.minHeightCm.toStringAsFixed(1)}-${snapshot.maxHeightCm.toStringAsFixed(1)} cm.';
+    final details = <String>[];
+    if (weight != null) {
+      details.add(
+        'Weight recorded: ${weight.toStringAsFixed(1)} kg. '
+        'Typical range for this age band: ${snapshot.minWeightKg.toStringAsFixed(1)}-${snapshot.maxWeightKg.toStringAsFixed(1)} kg.',
+      );
+    }
+    if (height != null) {
+      details.add(
+        'Length/height recorded: ${height.toStringAsFixed(1)} cm. '
+        'Typical range for this age band: ${snapshot.minHeightCm.toStringAsFixed(1)}-${snapshot.maxHeightCm.toStringAsFixed(1)} cm.',
+      );
+    }
 
     final color = colorForEntry(profile, entry);
     final reason = color == Colors.red
-        ? 'Marked red because at least one available value is outside the normal range.'
+        ? 'Marked red because at least one measured value is outside the expected range for age.'
         : color == Colors.green
-            ? 'Marked green because all available values are within the normal range.'
-            : 'Marked neutral because there is not enough applicable data.';
-
-    return '$reason\n\n$weightText\n$heightText\n\nReference age band: ${snapshot.ageLabel}.';
+            ? 'Marked green because the available measurements are within expected age-based ranges.'
+            : 'Marked neutral because no measurements were recorded for this entry.';
+    final measuredAge = AgeDisplayFormatter.babyMonthsAndDays(
+      profile.birthDate,
+      asOf: entry.date,
+    );
+    final detailText = details.isEmpty ? '' : '\n\n${details.join('\n')}';
+    return '$reason$detailText\n\nReference age band: ${snapshot.ageLabel} (measured at $measuredAge).';
   }
 }
