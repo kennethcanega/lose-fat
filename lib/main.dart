@@ -857,6 +857,7 @@ class AgeBasedInsightCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final ageInYears = profile.ageInYears;
+    final isBabyProfile = ageInYears < 2;
     final latest = profile.latest;
     final babySummary = BabyGrowthReference.summaryFor(profile);
 
@@ -875,7 +876,7 @@ class AgeBasedInsightCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                const Icon(Icons.child_care),
+                Icon(isBabyProfile ? Icons.child_care : Icons.insights),
                 const SizedBox(width: 8),
                 Expanded(child: Text(text)),
               ],
@@ -995,10 +996,17 @@ class _WeightChartCard extends StatelessWidget {
                         sideTitles: SideTitles(
                           showTitles: true,
                           interval: 1,
-                          getTitlesWidget: (value, _) {
+                          reservedSize: 34,
+                          getTitlesWidget: (value, meta) {
                             final index = value.toInt();
                             if (index < 0 || index >= entries.length) return const SizedBox.shrink();
-                            return Text(DateFormat('MM/dd/yy').format(entries[index].date));
+                            return SideTitleWidget(
+                              meta: meta,
+                              child: Padding(
+                                padding: EdgeInsets.only(right: index == entries.length - 1 ? 14 : 0),
+                                child: Text(DateFormat('MM/dd/yy').format(entries[index].date)),
+                              ),
+                            );
                           },
                         ),
                       ),
@@ -1069,10 +1077,17 @@ class _HeightChartCard extends StatelessWidget {
                       bottomTitles: AxisTitles(
                         sideTitles: SideTitles(
                           showTitles: true,
-                          getTitlesWidget: (value, _) {
+                          reservedSize: 34,
+                          getTitlesWidget: (value, meta) {
                             final index = value.toInt();
                             if (index < 0 || index >= entries.length) return const SizedBox.shrink();
-                            return Text(DateFormat('MM/dd/yy').format(entries[index].date));
+                            return SideTitleWidget(
+                              meta: meta,
+                              child: Padding(
+                                padding: EdgeInsets.only(right: index == entries.length - 1 ? 14 : 0),
+                                child: Text(DateFormat('MM/dd/yy').format(entries[index].date)),
+                              ),
+                            );
                           },
                         ),
                       ),
@@ -1170,6 +1185,7 @@ class EntriesTable extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isBabyProfile = profile.ageInYears < 2;
     final sorted = [...profile.entries]..sort((a, b) => b.date.compareTo(a.date));
     return Card(
       child: Padding(
@@ -1187,19 +1203,23 @@ class EntriesTable extends StatelessWidget {
               for (final entry in sorted)
                 DataRow.byIndex(
                   index: entry.id,
-                  color: MaterialStatePropertyAll(
-                    BabyGrowthReference.colorForEntry(profile, entry).withOpacity(0.14),
-                  ),
+                  color: isBabyProfile
+                      ? MaterialStatePropertyAll(
+                          BabyGrowthReference.colorForEntry(profile, entry).withOpacity(0.14),
+                        )
+                      : null,
                   cells: [
                     DataCell(
                       Row(
                         children: [
-                          Icon(
-                            Icons.circle,
-                            size: 10,
-                            color: BabyGrowthReference.colorForEntry(profile, entry),
-                          ),
-                          const SizedBox(width: 6),
+                          if (isBabyProfile) ...[
+                            Icon(
+                              Icons.circle,
+                              size: 10,
+                              color: BabyGrowthReference.colorForEntry(profile, entry),
+                            ),
+                            const SizedBox(width: 6),
+                          ],
                           Text(DateFormat('MM/dd/yy').format(entry.date)),
                         ],
                       ),
