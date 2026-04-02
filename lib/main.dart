@@ -1423,9 +1423,7 @@ class _WeightChartCard extends StatelessWidget {
     ];
     final minValue = allChartValues.reduce(min);
     final maxValue = allChartValues.reduce(max);
-    final midValue = (minValue + maxValue) / 2;
     final hasRange = (maxValue - minValue).abs() > 0.001;
-    final interval = hasRange ? (maxValue - minValue) / 2 : 0.2;
     final chartMinY = hasRange ? minValue : minValue - 0.5;
     final chartMaxY = hasRange ? maxValue : maxValue + 0.5;
     final chartWidth = max(680.0, entries.length * 90.0);
@@ -1458,15 +1456,7 @@ class _WeightChartCard extends StatelessWidget {
                       clipData: const FlClipData(top: false, bottom: false, left: false, right: false),
                       gridData: const FlGridData(show: true),
                       titlesData: FlTitlesData(
-                        leftTitles: AxisTitles(
-                          sideTitles: SideTitles(
-                            showTitles: true,
-                            interval: interval,
-                            reservedSize: 56,
-                            getTitlesWidget: (value, meta) =>
-                                _buildMinMidMaxTitle(value, meta, minValue, midValue, maxValue),
-                          ),
-                        ),
+                        leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
                         rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
                         topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
                         bottomTitles: AxisTitles(
@@ -1555,24 +1545,6 @@ class _WeightChartCard extends StatelessWidget {
     ];
   }
 
-  Widget _buildMinMidMaxTitle(
-    double value,
-    TitleMeta meta,
-    double minValue,
-    double midValue,
-    double maxValue,
-  ) {
-    final match =
-        (value - minValue).abs() < 0.2 || (value - midValue).abs() < 0.2 || (value - maxValue).abs() < 0.2;
-    if (!match) return const SizedBox.shrink();
-    return SideTitleWidget(
-      meta: meta,
-      child: Text(
-        value.toStringAsFixed(1),
-        style: const TextStyle(fontSize: 11, color: Colors.black87, fontWeight: FontWeight.w600),
-      ),
-    );
-  }
 }
 
 class _HeightChartCard extends StatelessWidget {
@@ -1597,9 +1569,7 @@ class _HeightChartCard extends StatelessWidget {
     ];
     final minValue = allChartValues.reduce(min);
     final maxValue = allChartValues.reduce(max);
-    final midValue = (minValue + maxValue) / 2;
     final hasRange = (maxValue - minValue).abs() > 0.001;
-    final interval = hasRange ? (maxValue - minValue) / 2 : 0.2;
     final chartMinY = hasRange ? minValue : minValue - 0.5;
     final chartMaxY = hasRange ? maxValue : maxValue + 0.5;
     final chartWidth = max(680.0, entries.length * 90.0);
@@ -1632,15 +1602,7 @@ class _HeightChartCard extends StatelessWidget {
                       clipData: const FlClipData(top: false, bottom: false, left: false, right: false),
                       gridData: const FlGridData(show: true),
                       titlesData: FlTitlesData(
-                        leftTitles: AxisTitles(
-                          sideTitles: SideTitles(
-                            showTitles: true,
-                            interval: interval,
-                            reservedSize: 56,
-                            getTitlesWidget: (value, meta) =>
-                                _buildMinMidMaxTitle(value, meta, minValue, midValue, maxValue),
-                          ),
-                        ),
+                        leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
                         rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
                         topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
                         bottomTitles: AxisTitles(
@@ -1729,24 +1691,6 @@ class _HeightChartCard extends StatelessWidget {
     ];
   }
 
-  Widget _buildMinMidMaxTitle(
-    double value,
-    TitleMeta meta,
-    double minValue,
-    double midValue,
-    double maxValue,
-  ) {
-    final match =
-        (value - minValue).abs() < 0.2 || (value - midValue).abs() < 0.2 || (value - maxValue).abs() < 0.2;
-    if (!match) return const SizedBox.shrink();
-    return SideTitleWidget(
-      meta: meta,
-      child: Text(
-        value.toStringAsFixed(1),
-        style: const TextStyle(fontSize: 11, color: Colors.black87, fontWeight: FontWeight.w600),
-      ),
-    );
-  }
 }
 
 class _LogoBadge extends StatelessWidget {
