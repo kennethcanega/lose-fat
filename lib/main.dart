@@ -1821,6 +1821,7 @@ class _WeightEntriesTableCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final sorted = [...entries]..sort((a, b) => b.date.compareTo(a.date));
+    final showPercentile = profile.ageInYears < 18;
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(12),
@@ -1830,7 +1831,7 @@ class _WeightEntriesTableCard extends StatelessWidget {
             columns: [
               const DataColumn(label: Text('Date')),
               DataColumn(label: Text('Weight (${profile.weightUnit.label})')),
-              const DataColumn(label: Text('Weight %ile')),
+              if (showPercentile) const DataColumn(label: Text('Weight %ile')),
               const DataColumn(label: Text('Actions')),
             ],
             rows: [
@@ -1863,10 +1864,11 @@ class _WeightEntriesTableCard extends StatelessWidget {
                       ),
                       onTap: () => _showWeightExplanation(context, entry),
                     ),
-                    DataCell(
-                      Text(BabyGrowthReference.weightPercentileLabel(profile, entry)),
-                      onTap: () => _showWeightExplanation(context, entry),
-                    ),
+                    if (showPercentile)
+                      DataCell(
+                        Text(BabyGrowthReference.weightPercentileLabel(profile, entry)),
+                        onTap: () => _showWeightExplanation(context, entry),
+                      ),
                     DataCell(
                       Row(
                         children: [
@@ -1976,6 +1978,7 @@ class _HeightEntriesTableCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final sorted = [...entries]..sort((a, b) => b.date.compareTo(a.date));
+    final showPercentile = profile.ageInYears < 18;
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(12),
@@ -1985,7 +1988,7 @@ class _HeightEntriesTableCard extends StatelessWidget {
             columns: [
               const DataColumn(label: Text('Date')),
               DataColumn(label: Text('Height (${profile.heightUnit.label})')),
-              const DataColumn(label: Text('Height %ile')),
+              if (showPercentile) const DataColumn(label: Text('Height %ile')),
               const DataColumn(label: Text('Actions')),
             ],
             rows: [
@@ -2018,10 +2021,11 @@ class _HeightEntriesTableCard extends StatelessWidget {
                       ),
                       onTap: () => _showHeightExplanation(context, entry),
                     ),
-                    DataCell(
-                      Text(BabyGrowthReference.heightPercentileLabel(profile, entry)),
-                      onTap: () => _showHeightExplanation(context, entry),
-                    ),
+                    if (showPercentile)
+                      DataCell(
+                        Text(BabyGrowthReference.heightPercentileLabel(profile, entry)),
+                        onTap: () => _showHeightExplanation(context, entry),
+                      ),
                     DataCell(
                       Row(
                         children: [
