@@ -1552,9 +1552,12 @@ class _WeightChartCard extends StatelessWidget {
     final match =
         (value - minValue).abs() < 0.2 || (value - midValue).abs() < 0.2 || (value - maxValue).abs() < 0.2;
     if (!match) return const SizedBox.shrink();
-    return Text(
-      value.toStringAsFixed(1),
-      style: const TextStyle(fontSize: 11, color: Colors.black87, fontWeight: FontWeight.w600),
+    return SideTitleWidget(
+      meta: meta,
+      child: Text(
+        value.toStringAsFixed(1),
+        style: const TextStyle(fontSize: 11, color: Colors.black87, fontWeight: FontWeight.w600),
+      ),
     );
   }
 }
@@ -1723,9 +1726,12 @@ class _HeightChartCard extends StatelessWidget {
     final match =
         (value - minValue).abs() < 0.2 || (value - midValue).abs() < 0.2 || (value - maxValue).abs() < 0.2;
     if (!match) return const SizedBox.shrink();
-    return Text(
-      value.toStringAsFixed(1),
-      style: const TextStyle(fontSize: 11, color: Colors.black87, fontWeight: FontWeight.w600),
+    return SideTitleWidget(
+      meta: meta,
+      child: Text(
+        value.toStringAsFixed(1),
+        style: const TextStyle(fontSize: 11, color: Colors.black87, fontWeight: FontWeight.w600),
+      ),
     );
   }
 }
