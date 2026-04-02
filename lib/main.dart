@@ -844,6 +844,7 @@ class ProfileOverviewCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isBabyProfile = profile.ageInYears < 2;
     final latestWeight = profile.latestWithWeight?.weightKg;
     final latestHeight = profile.latestWithHeight?.heightCm;
     final latestBmi = profile.latest?.bmi;
@@ -879,7 +880,7 @@ class ProfileOverviewCard extends StatelessWidget {
                     value:
                         '${UnitConverter.toDisplayHeight(latestHeight, profile.heightUnit).toStringAsFixed(1)} ${profile.heightUnit.label}',
                   ),
-                if (latestBmi != null) _MetricTile(label: 'BMI', value: latestBmi.toStringAsFixed(1)),
+                if (!isBabyProfile && latestBmi != null) _MetricTile(label: 'BMI', value: latestBmi.toStringAsFixed(1)),
               ],
             ),
           ],
@@ -969,7 +970,7 @@ class AgeBasedInsightCard extends StatelessWidget {
         ? null
         : UnitConverter.toDisplayWeight(adultInsight?.weightToLoseKg ?? 0, profile.weightUnit);
 
-    final text = ageInYears < 1
+    final text = ageInYears < 2
         ? 'Baby development mode: compare growth against reference trajectory lines instead of adult BMI targets.'
         : adultInsight != null
             ? 'Adult BMI: ${latest!.bmi!.toStringAsFixed(1)} • ${adultInsight.label}'
@@ -1149,7 +1150,9 @@ class _WeightChartCard extends StatelessWidget {
     final minValue = allChartValues.reduce(min);
     final maxValue = allChartValues.reduce(max);
     final midValue = (minValue + maxValue) / 2;
-    final yPadding = max(0.6, (maxValue - minValue) * 0.08);
+    final interval = max(0.2, (maxValue - minValue) / 2);
+    final chartMinY = minValue == maxValue ? minValue - 0.5 : minValue;
+    final chartMaxY = minValue == maxValue ? maxValue + 0.5 : maxValue;
     final chartWidth = max(680.0, entries.length * 90.0);
 
     return Card(
@@ -1171,13 +1174,14 @@ class _WeightChartCard extends StatelessWidget {
                     LineChartData(
                       minX: -0.2,
                       maxX: entries.length - 0.8,
-                      minY: minValue - yPadding,
-                      maxY: maxValue + yPadding,
+                      minY: chartMinY,
+                      maxY: chartMaxY,
                       gridData: const FlGridData(show: true),
                       titlesData: FlTitlesData(
                         leftTitles: AxisTitles(
                           sideTitles: SideTitles(
                             showTitles: true,
+                            interval: interval,
                             reservedSize: 56,
                             getTitlesWidget: (value, meta) =>
                                 _buildMinMidMaxTitle(value, meta, minValue, midValue, maxValue),
@@ -1277,9 +1281,12 @@ class _WeightChartCard extends StatelessWidget {
     double maxValue,
   ) {
     final match =
-        (value - minValue).abs() < 0.05 || (value - midValue).abs() < 0.05 || (value - maxValue).abs() < 0.05;
+        (value - minValue).abs() < 0.2 || (value - midValue).abs() < 0.2 || (value - maxValue).abs() < 0.2;
     if (!match) return const SizedBox.shrink();
-    return Text(value.toStringAsFixed(1), style: const TextStyle(fontSize: 11));
+    return Text(
+      value.toStringAsFixed(1),
+      style: const TextStyle(fontSize: 11, color: Colors.black87, fontWeight: FontWeight.w600),
+    );
   }
 }
 
@@ -1306,7 +1313,9 @@ class _HeightChartCard extends StatelessWidget {
     final minValue = allChartValues.reduce(min);
     final maxValue = allChartValues.reduce(max);
     final midValue = (minValue + maxValue) / 2;
-    final yPadding = max(0.6, (maxValue - minValue) * 0.08);
+    final interval = max(0.2, (maxValue - minValue) / 2);
+    final chartMinY = minValue == maxValue ? minValue - 0.5 : minValue;
+    final chartMaxY = minValue == maxValue ? maxValue + 0.5 : maxValue;
     final chartWidth = max(680.0, entries.length * 90.0);
 
     return Card(
@@ -1328,13 +1337,14 @@ class _HeightChartCard extends StatelessWidget {
                     LineChartData(
                       minX: -0.2,
                       maxX: entries.length - 0.8,
-                      minY: minValue - yPadding,
-                      maxY: maxValue + yPadding,
+                      minY: chartMinY,
+                      maxY: chartMaxY,
                       gridData: const FlGridData(show: true),
                       titlesData: FlTitlesData(
                         leftTitles: AxisTitles(
                           sideTitles: SideTitles(
                             showTitles: true,
+                            interval: interval,
                             reservedSize: 56,
                             getTitlesWidget: (value, meta) =>
                                 _buildMinMidMaxTitle(value, meta, minValue, midValue, maxValue),
@@ -1434,9 +1444,12 @@ class _HeightChartCard extends StatelessWidget {
     double maxValue,
   ) {
     final match =
-        (value - minValue).abs() < 0.05 || (value - midValue).abs() < 0.05 || (value - maxValue).abs() < 0.05;
+        (value - minValue).abs() < 0.2 || (value - midValue).abs() < 0.2 || (value - maxValue).abs() < 0.2;
     if (!match) return const SizedBox.shrink();
-    return Text(value.toStringAsFixed(1), style: const TextStyle(fontSize: 11));
+    return Text(
+      value.toStringAsFixed(1),
+      style: const TextStyle(fontSize: 11, color: Colors.black87, fontWeight: FontWeight.w600),
+    );
   }
 }
 
@@ -1491,7 +1504,7 @@ class EntriesTable extends StatelessWidget {
               if (isBabyProfile) const DataColumn(label: Text('Weight %ile')),
               DataColumn(label: Text('Height (${profile.heightUnit.label})')),
               if (isBabyProfile) const DataColumn(label: Text('Height %ile')),
-              const DataColumn(label: Text('BMI')),
+              if (!isBabyProfile) const DataColumn(label: Text('BMI')),
               const DataColumn(label: Text('Actions')),
             ],
             rows: [
@@ -1546,10 +1559,10 @@ class EntriesTable extends StatelessWidget {
                         entry.heightCm == null ? const Text('-') : Text(BabyGrowthReference.heightPercentileLabel(profile, entry)),
                         onTap: () => _showEntryExplanation(context, entry),
                       ),
-                    DataCell(
-                      Text(entry.bmi == null ? '-' : entry.bmi!.toStringAsFixed(1)),
-                      onTap: isBabyProfile ? () => _showEntryExplanation(context, entry) : null,
-                    ),
+                    if (!isBabyProfile)
+                      DataCell(
+                        Text(entry.bmi == null ? '-' : entry.bmi!.toStringAsFixed(1)),
+                      ),
                     DataCell(
                       Row(
                         children: [
