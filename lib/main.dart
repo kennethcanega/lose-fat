@@ -19,8 +19,20 @@ class HealthJourneyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'Family Growth Tracker',
-      theme: ThemeData(useMaterial3: true, colorSchemeSeed: Colors.teal),
+      title: 'Family Health',
+      theme: ThemeData(
+        useMaterial3: true,
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xFF1D84C6),
+          brightness: Brightness.light,
+        ).copyWith(
+          primary: const Color(0xFF1D84C6),
+          secondary: const Color(0xFF4CAF50),
+          tertiary: const Color(0xFFFF9800),
+          surface: const Color(0xFFF7FAFC),
+        ),
+        scaffoldBackgroundColor: const Color(0xFFF2F7FB),
+      ),
       home: const AppBootstrapper(),
     );
   }
@@ -339,7 +351,13 @@ class RegistrationScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Create your first profile')),
+      appBar: AppBar(
+        leading: const Padding(
+          padding: EdgeInsets.all(8),
+          child: _LogoBadge(size: 36),
+        ),
+        title: const Text('Create your first profile'),
+      ),
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 580),
@@ -384,7 +402,13 @@ class TrackerDashboard extends StatelessWidget {
   Widget build(BuildContext context) {
     final profile = selectedProfile;
     return Scaffold(
-      appBar: AppBar(title: Text(profile.name)),
+      appBar: AppBar(
+        leading: const Padding(
+          padding: EdgeInsets.all(8),
+          child: _LogoBadge(size: 36),
+        ),
+        title: Text(profile.name),
+      ),
       drawer: Drawer(
         child: SafeArea(
           child: Column(
@@ -492,13 +516,13 @@ class CreateProfileForm extends StatefulWidget {
 
 class _CreateProfileFormState extends State<CreateProfileForm> {
   static const _purposeOptions = [
-    'Baby growth and development tracking',
-    'Postpartum recovery progress',
-    'Father/Mother weight loss journey',
-    'General fitness and body composition monitoring',
-    'Teen growth and sports conditioning',
-    'Senior wellness and mobility monitoring',
-    'Medical follow-up (as advised by clinician)',
+    'Baby growth tracking',
+    'Postpartum recovery',
+    'Weight loss journey',
+    'Fitness tracking',
+    'Teen growth',
+    'Senior wellness',
+    'Clinical follow-up',
   ];
 
   final _formKey = GlobalKey<FormState>();
@@ -519,6 +543,10 @@ class _CreateProfileFormState extends State<CreateProfileForm> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            const Padding(
+              padding: EdgeInsets.only(bottom: 8),
+              child: _LogoBadge(size: 72),
+            ),
             TextFormField(
               controller: _nameController,
               decoration: const InputDecoration(labelText: 'Name'),
@@ -721,7 +749,7 @@ class AgeBasedInsightCard extends StatelessWidget {
     final latest = profile.latest;
 
     final text = ageInYears < 1
-        ? 'Baby development mode: focus on consistent height/weight progression over time and percentile-like trends instead of adult BMI targets.'
+        ? 'Baby development mode: compare growth against reference trajectory lines instead of adult BMI targets.'
         : latest?.bmi == null
             ? 'Add both weight and height in at least one entry to compute BMI and richer insights.'
             : 'Current BMI is ${latest!.bmi!.toStringAsFixed(1)}. Keep gradual and consistent progress.';
@@ -853,9 +881,12 @@ class _HeightChartCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isBabyProfile = profile.ageInYears < 2;
     final values = entries.map((e) => UnitConverter.toDisplayHeight(e.heightCm!, profile.heightUnit)).toList();
-    final minValue = values.reduce(min);
-    final maxValue = values.reduce(max);
+    final guidanceTarget = _guidanceLine(entries, profile, factor: 1.0);
+    final guidanceLow = _guidanceLine(entries, profile, factor: 0.93);
+    final minValue = [...values, ...guidanceLow.map((e) => e.y)].reduce(min);
+    final maxValue = [...values, ...guidanceTarget.map((e) => e.y)].reduce(max);
     final midValue = (minValue + maxValue) / 2;
     final chartWidth = max(640.0, entries.length * 90.0);
 
@@ -873,8 +904,10 @@ class _HeightChartCard extends StatelessWidget {
               child: SizedBox(
                 width: chartWidth,
                 height: 260,
-                child: BarChart(
-                  BarChartData(
+                child: LineChart(
+                  LineChartData(
+                    minY: minValue - 1,
+                    maxY: maxValue + 1,
                     gridData: const FlGridData(show: true),
                     titlesData: FlTitlesData(
                       leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
@@ -891,26 +924,86 @@ class _HeightChartCard extends StatelessWidget {
                         ),
                       ),
                     ),
-                    barGroups: [
-                      for (var i = 0; i < entries.length; i++)
-                        BarChartGroupData(
-                          x: i,
-                          barRods: [
-                            BarChartRodData(
-                              toY: UnitConverter.toDisplayHeight(entries[i].heightCm!, profile.heightUnit),
-                              width: 16,
-                              borderRadius: BorderRadius.circular(4),
-                              color: Theme.of(context).colorScheme.tertiary,
-                            ),
-                          ],
+                    lineBarsData: [
+                      LineChartBarData(
+                        isCurved: true,
+                        barWidth: 3,
+                        color: Theme.of(context).colorScheme.tertiary,
+                        spots: [
+                          for (var i = 0; i < entries.length; i++)
+                            FlSpot(i.toDouble(), UnitConverter.toDisplayHeight(entries[i].heightCm!, profile.heightUnit)),
+                        ],
+                        dotData: const FlDotData(show: true),
+                      ),
+                      if (isBabyProfile)
+                        LineChartBarData(
+                          isCurved: true,
+                          barWidth: 2,
+                          color: Colors.green.shade700,
+                          spots: guidanceTarget,
+                          dotData: const FlDotData(show: false),
+                          dashArray: const [7, 4],
+                        ),
+                      if (isBabyProfile)
+                        LineChartBarData(
+                          isCurved: true,
+                          barWidth: 2,
+                          color: Colors.red.shade700,
+                          spots: guidanceLow,
+                          dotData: const FlDotData(show: false),
+                          dashArray: const [7, 4],
                         ),
                     ],
                   ),
                 ),
               ),
             ),
+            if (isBabyProfile)
+              const Padding(
+                padding: EdgeInsets.only(top: 8),
+                child: Text(
+                  'Green = expected trajectory, Red = lower-bound trajectory (guidance only, not a diagnosis).',
+                ),
+              ),
           ],
         ),
+      ),
+    );
+  }
+
+  List<FlSpot> _guidanceLine(List<MetricEntry> entries, GrowthProfile profile, {required double factor}) {
+    final first = UnitConverter.toDisplayHeight(entries.first.heightCm!, profile.heightUnit);
+    return [
+      for (var i = 0; i < entries.length; i++)
+        FlSpot(i.toDouble(), (first + i * 1.2) * factor),
+    ];
+  }
+}
+
+class _LogoBadge extends StatelessWidget {
+  const _LogoBadge({required this.size});
+
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.08),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: const Image(
+        image: AssetImage('assets/APP_ICON.png'),
+        fit: BoxFit.cover,
       ),
     );
   }
