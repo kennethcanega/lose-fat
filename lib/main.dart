@@ -142,7 +142,7 @@ class GrowthProfile {
 
   int get ageInMonths {
     final now = DateTime.now();
-    return (now.year - birthDate.year) * 12 + now.month - birthDate.month;
+    return AgeDisplayFormatter.monthsBetween(birthDate, now);
   }
 
   double get ageInYears => ageInMonths / 12;
@@ -1427,13 +1427,17 @@ class _WeightChartCard extends StatelessWidget {
             const SizedBox(height: 8),
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
-              child: SizedBox(
-                width: chartWidth,
-                height: 260,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: LineChart(
-                    LineChartData(
+              child: SingleChildScrollView(
+                scrollDirection: Axis.vertical,
+                child: SizedBox(
+                  width: chartWidth,
+                  height: 260,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: SizedBox(
+                      height: 320,
+                      child: LineChart(
+                        LineChartData(
                       minX: -0.2,
                       maxX: entries.length - 0.8,
                       minY: chartMinY,
@@ -1505,6 +1509,8 @@ class _WeightChartCard extends StatelessWidget {
                             dashArray: const [7, 4],
                           ),
                       ],
+                        ),
+                      ),
                     ),
                   ),
                 ),
@@ -1592,13 +1598,17 @@ class _HeightChartCard extends StatelessWidget {
             const SizedBox(height: 8),
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
-              child: SizedBox(
-                width: chartWidth,
-                height: 260,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: LineChart(
-                    LineChartData(
+              child: SingleChildScrollView(
+                scrollDirection: Axis.vertical,
+                child: SizedBox(
+                  width: chartWidth,
+                  height: 260,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: SizedBox(
+                      height: 320,
+                      child: LineChart(
+                        LineChartData(
                       minX: -0.2,
                       maxX: entries.length - 0.8,
                       minY: chartMinY,
@@ -1670,6 +1680,8 @@ class _HeightChartCard extends StatelessWidget {
                             dashArray: const [7, 4],
                           ),
                       ],
+                        ),
+                      ),
                     ),
                   ),
                 ),
