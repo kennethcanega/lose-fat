@@ -332,6 +332,46 @@ class ProfileRepository {
     });
   }
 
+  Future<void> updateProfile({
+    required int profileId,
+    required String name,
+    required String purpose,
+    required DateTime birthDate,
+    required WeightUnit weightUnit,
+    required HeightUnit heightUnit,
+  }) async {
+    await _db!.update(
+      'profiles',
+      {
+        'name': name,
+        'purpose': purpose,
+        'birth_date': birthDate.toIso8601String(),
+        'weight_unit': weightUnit.label,
+        'height_unit': heightUnit.label,
+      },
+      where: 'id = ?',
+      whereArgs: [profileId],
+    );
+  }
+
+  Future<void> updateEntry({
+    required int entryId,
+    required DateTime date,
+    required double? weightKg,
+    required double? heightCm,
+  }) async {
+    await _db!.update(
+      'entries',
+      {
+        'date': date.toIso8601String(),
+        'weight_kg': weightKg,
+        'height_cm': heightCm,
+      },
+      where: 'id = ?',
+      whereArgs: [entryId],
+    );
+  }
+
   Future<int?> getSelectedProfileId() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getInt(_selectedProfileKey);
@@ -403,11 +443,51 @@ class TrackerDashboard extends StatelessWidget {
     final profile = selectedProfile;
     return Scaffold(
       appBar: AppBar(
-        leading: const Padding(
-          padding: EdgeInsets.all(8),
-          child: _LogoBadge(size: 36),
+        leading: Builder(
+          builder: (context) => IconButton(
+            tooltip: 'Open profiles',
+            icon: const Icon(Icons.menu),
+            onPressed: () => Scaffold.of(context).openDrawer(),
+          ),
         ),
-        title: Text(profile.name),
+        title: Row(
+          children: [
+            const _LogoBadge(size: 28),
+            const SizedBox(width: 8),
+            Expanded(child: Text(profile.name)),
+          ],
+        ),
+        actions: [
+          IconButton(
+            tooltip: 'Edit profile',
+            icon: const Icon(Icons.edit),
+            onPressed: () async {
+              await showDialog<void>(
+                context: context,
+                builder: (_) => AlertDialog(
+                  title: const Text('Edit profile'),
+                  content: SizedBox(
+                    width: 540,
+                    child: EditProfileForm(
+                      profile: profile,
+                      onSubmit: (input) async {
+                        await ProfileRepository.instance.updateProfile(
+                          profileId: profile.id,
+                          name: input.name,
+                          purpose: input.purpose,
+                          birthDate: input.birthDate,
+                          weightUnit: input.weightUnit,
+                          heightUnit: input.heightUnit,
+                        );
+                        await onDataChanged();
+                      },
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ],
       ),
       drawer: Drawer(
         child: SafeArea(
@@ -497,7 +577,7 @@ class TrackerDashboard extends StatelessWidget {
           const SizedBox(height: 12),
           TrendCharts(profile: profile),
           const SizedBox(height: 12),
-          EntriesTable(profile: profile),
+          EntriesTable(profile: profile, onDataChanged: onDataChanged),
           const SizedBox(height: 80),
         ],
       ),
@@ -515,7 +595,7 @@ class CreateProfileForm extends StatefulWidget {
 }
 
 class _CreateProfileFormState extends State<CreateProfileForm> {
-  static const _purposeOptions = [
+  static const purposeOptions = [
     'Baby growth tracking',
     'Postpartum recovery',
     'Weight loss journey',
@@ -532,7 +612,7 @@ class _CreateProfileFormState extends State<CreateProfileForm> {
   DateTime _birthDate = DateTime.now();
   WeightUnit _weightUnit = WeightUnit.kg;
   HeightUnit _heightUnit = HeightUnit.cm;
-  String _purpose = _purposeOptions.first;
+  String _purpose = purposeOptions.first;
   bool _saving = false;
 
   @override
@@ -556,7 +636,7 @@ class _CreateProfileFormState extends State<CreateProfileForm> {
             DropdownButtonFormField<String>(
               value: _purpose,
               decoration: const InputDecoration(labelText: 'Purpose'),
-              items: _purposeOptions
+              items: purposeOptions
                   .map((item) => DropdownMenuItem(value: item, child: Text(item)))
                   .toList(),
               onChanged: (value) {
@@ -747,6 +827,7 @@ class AgeBasedInsightCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final ageInYears = profile.ageInYears;
     final latest = profile.latest;
+    final babySummary = BabyGrowthReference.summaryFor(profile);
 
     final text = ageInYears < 1
         ? 'Baby development mode: compare growth against reference trajectory lines instead of adult BMI targets.'
@@ -758,16 +839,57 @@ class AgeBasedInsightCard extends StatelessWidget {
       color: Theme.of(context).colorScheme.secondaryContainer,
       child: Padding(
         padding: const EdgeInsets.all(16),
-        child: Row(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Icon(Icons.child_care),
-            const SizedBox(width: 8),
-            Expanded(child: Text(text)),
+            Row(
+              children: [
+                const Icon(Icons.child_care),
+                const SizedBox(width: 8),
+                Expanded(child: Text(text)),
+              ],
+            ),
+            if (babySummary != null) ...[
+              const SizedBox(height: 12),
+              const Divider(height: 1),
+              const SizedBox(height: 10),
+              Text(
+                'Baby growth summary (${babySummary.ageLabel})',
+                style: Theme.of(context).textTheme.titleSmall,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Average weight: ${_formatNumber(babySummary.avgWeightKg)} kg '
+                '(${_formatNumber(UnitConverter.toDisplayWeight(babySummary.avgWeightKg, profile.weightUnit))} ${profile.weightUnit.label})',
+              ),
+              Text(
+                'Average height: ${_formatNumber(babySummary.avgHeightCm)} cm '
+                '(${_formatNumber(UnitConverter.toDisplayHeight(babySummary.avgHeightCm, profile.heightUnit))} ${profile.heightUnit.label})',
+              ),
+              Text(
+                'Normal range: weight ${_formatRangeKg(babySummary.minWeightKg, babySummary.maxWeightKg, profile.weightUnit)} '
+                'and height ${_formatRangeCm(babySummary.minHeightCm, babySummary.maxHeightCm, profile.heightUnit)}.',
+              ),
+            ],
           ],
         ),
       ),
     );
   }
+
+  String _formatRangeKg(double low, double high, WeightUnit unit) {
+    final lowDisplay = UnitConverter.toDisplayWeight(low, unit);
+    final highDisplay = UnitConverter.toDisplayWeight(high, unit);
+    return '${_formatNumber(lowDisplay)}-${_formatNumber(highDisplay)} ${unit.label}';
+  }
+
+  String _formatRangeCm(double low, double high, HeightUnit unit) {
+    final lowDisplay = UnitConverter.toDisplayHeight(low, unit);
+    final highDisplay = UnitConverter.toDisplayHeight(high, unit);
+    return '${_formatNumber(lowDisplay)}-${_formatNumber(highDisplay)} ${unit.label}';
+  }
+
+  String _formatNumber(double value) => value.toStringAsFixed(1);
 }
 
 class TrendCharts extends StatelessWidget {
@@ -1010,9 +1132,10 @@ class _LogoBadge extends StatelessWidget {
 }
 
 class EntriesTable extends StatelessWidget {
-  const EntriesTable({super.key, required this.profile});
+  const EntriesTable({super.key, required this.profile, required this.onDataChanged});
 
   final GrowthProfile profile;
+  final Future<void> Function() onDataChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -1031,15 +1154,33 @@ class EntriesTable extends StatelessWidget {
             ],
             rows: [
               for (final entry in sorted)
-                DataRow(
+                DataRow.byIndex(
+                  index: entry.id,
+                  color: MaterialStatePropertyAll(
+                    BabyGrowthReference.colorForEntry(profile, entry).withOpacity(0.14),
+                  ),
                   cells: [
-                    DataCell(Text(DateFormat('MM/dd/yy').format(entry.date))),
+                    DataCell(
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.circle,
+                            size: 10,
+                            color: BabyGrowthReference.colorForEntry(profile, entry),
+                          ),
+                          const SizedBox(width: 6),
+                          Text(DateFormat('MM/dd/yy').format(entry.date)),
+                        ],
+                      ),
+                      onTap: () => _showEntryExplanation(context, entry),
+                    ),
                     DataCell(
                       Text(
                         entry.weightKg == null
                             ? '-'
                             : UnitConverter.toDisplayWeight(entry.weightKg!, profile.weightUnit).toStringAsFixed(1),
                       ),
+                      onTap: () => _showEntryExplanation(context, entry),
                     ),
                     DataCell(
                       Text(
@@ -1047,13 +1188,56 @@ class EntriesTable extends StatelessWidget {
                             ? '-'
                             : UnitConverter.toDisplayHeight(entry.heightCm!, profile.heightUnit).toStringAsFixed(1),
                       ),
+                      onTap: () => _showEntryExplanation(context, entry),
                     ),
-                    DataCell(Text(entry.bmi == null ? '-' : entry.bmi!.toStringAsFixed(1))),
+                    DataCell(
+                      Text(entry.bmi == null ? '-' : entry.bmi!.toStringAsFixed(1)),
+                      onTap: () => _showEntryExplanation(context, entry),
+                    ),
                   ],
+                  onSelectChanged: (_) => _showEditEntrySheet(context, entry),
                 ),
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Future<void> _showEditEntrySheet(BuildContext context, MetricEntry entry) async {
+    final result = await showModalBottomSheet<AddEntryInput>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (_) => AddEntrySheet(profile: profile, initialEntry: entry),
+    );
+    if (result == null) return;
+    await ProfileRepository.instance.updateEntry(
+      entryId: entry.id,
+      date: result.date,
+      weightKg: result.weight == null
+          ? null
+          : UnitConverter.fromDisplayWeight(result.weight!, profile.weightUnit),
+      heightCm: result.height == null
+          ? null
+          : UnitConverter.fromDisplayHeight(result.height!, profile.heightUnit),
+    );
+    await onDataChanged();
+  }
+
+  void _showEntryExplanation(BuildContext context, MetricEntry entry) {
+    final explanation = BabyGrowthReference.explainEntry(profile, entry);
+    showDialog<void>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Entry color explanation'),
+        content: Text(explanation),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
       ),
     );
   }
@@ -1068,9 +1252,10 @@ class AddEntryInput {
 }
 
 class AddEntrySheet extends StatefulWidget {
-  const AddEntrySheet({super.key, required this.profile});
+  const AddEntrySheet({super.key, required this.profile, this.initialEntry});
 
   final GrowthProfile profile;
+  final MetricEntry? initialEntry;
 
   @override
   State<AddEntrySheet> createState() => _AddEntrySheetState();
@@ -1080,7 +1265,22 @@ class _AddEntrySheetState extends State<AddEntrySheet> {
   final _formKey = GlobalKey<FormState>();
   final _weightController = TextEditingController();
   final _heightController = TextEditingController();
-  DateTime _selectedDate = DateTime.now();
+  late DateTime _selectedDate;
+
+  @override
+  void initState() {
+    super.initState();
+    final initial = widget.initialEntry;
+    _selectedDate = initial?.date ?? DateTime.now();
+    if (initial?.weightKg != null) {
+      _weightController.text =
+          UnitConverter.toDisplayWeight(initial!.weightKg!, widget.profile.weightUnit).toStringAsFixed(1);
+    }
+    if (initial?.heightCm != null) {
+      _heightController.text =
+          UnitConverter.toDisplayHeight(initial!.heightCm!, widget.profile.heightUnit).toStringAsFixed(1);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1091,7 +1291,7 @@ class _AddEntrySheetState extends State<AddEntrySheet> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text('Add measurement for ${widget.profile.name}'),
+            Text('${widget.initialEntry == null ? 'Add' : 'Edit'} measurement for ${widget.profile.name}'),
             const SizedBox(height: 8),
             TextFormField(
               controller: _weightController,
@@ -1138,7 +1338,7 @@ class _AddEntrySheetState extends State<AddEntrySheet> {
                 );
               },
               icon: const Icon(Icons.save),
-              label: const Text('Save entry'),
+              label: Text(widget.initialEntry == null ? 'Save entry' : 'Update entry'),
             ),
           ],
         ),
@@ -1156,5 +1356,266 @@ class _AddEntrySheetState extends State<AddEntrySheet> {
   double? _parseOptional(String value) {
     if (value.trim().isEmpty) return null;
     return double.parse(value.trim());
+  }
+}
+
+class EditProfileForm extends StatefulWidget {
+  const EditProfileForm({super.key, required this.profile, required this.onSubmit});
+
+  final GrowthProfile profile;
+  final Future<void> Function(CreateProfileInput input) onSubmit;
+
+  @override
+  State<EditProfileForm> createState() => _EditProfileFormState();
+}
+
+class _EditProfileFormState extends State<EditProfileForm> {
+  final _formKey = GlobalKey<FormState>();
+  late final TextEditingController _nameController;
+  late String _purpose;
+  late DateTime _birthDate;
+  late WeightUnit _weightUnit;
+  late HeightUnit _heightUnit;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _nameController = TextEditingController(text: widget.profile.name);
+    _purpose = widget.profile.purpose;
+    _birthDate = widget.profile.birthDate;
+    _weightUnit = widget.profile.weightUnit;
+    _heightUnit = widget.profile.heightUnit;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Form(
+      key: _formKey,
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextFormField(
+              controller: _nameController,
+              decoration: const InputDecoration(labelText: 'Name'),
+              validator: _required,
+            ),
+            const SizedBox(height: 8),
+            DropdownButtonFormField<String>(
+              value: _purpose,
+              decoration: const InputDecoration(labelText: 'Purpose'),
+              items: _CreateProfileFormState.purposeOptions
+                  .map((item) => DropdownMenuItem(value: item, child: Text(item)))
+                  .toList(),
+              onChanged: (value) {
+                if (value != null) setState(() => _purpose = value);
+              },
+            ),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Birth date'),
+              subtitle: Text(DateFormat('MM/dd/yy').format(_birthDate)),
+              trailing: const Icon(Icons.calendar_month),
+              onTap: () async {
+                final picked = await showDatePicker(
+                  context: context,
+                  firstDate: DateTime(1900),
+                  lastDate: DateTime.now(),
+                  initialDate: _birthDate,
+                );
+                if (picked != null) setState(() => _birthDate = picked);
+              },
+            ),
+            SegmentedButton<WeightUnit>(
+              segments: const [
+                ButtonSegment(value: WeightUnit.kg, label: Text('kg')),
+                ButtonSegment(value: WeightUnit.lbs, label: Text('lbs')),
+              ],
+              selected: {_weightUnit},
+              onSelectionChanged: (values) => setState(() => _weightUnit = values.first),
+            ),
+            const SizedBox(height: 8),
+            SegmentedButton<HeightUnit>(
+              segments: const [
+                ButtonSegment(value: HeightUnit.cm, label: Text('cm')),
+                ButtonSegment(value: HeightUnit.ft, label: Text('ft')),
+              ],
+              selected: {_heightUnit},
+              onSelectionChanged: (values) => setState(() => _heightUnit = values.first),
+            ),
+            const SizedBox(height: 12),
+            FilledButton.icon(
+              onPressed: _saving
+                  ? null
+                  : () async {
+                      if (!_formKey.currentState!.validate()) return;
+                      setState(() => _saving = true);
+                      await widget.onSubmit(
+                        CreateProfileInput(
+                          name: _nameController.text.trim(),
+                          purpose: _purpose,
+                          birthDate: _birthDate,
+                          weightUnit: _weightUnit,
+                          heightUnit: _heightUnit,
+                        ),
+                      );
+                      if (mounted) {
+                        setState(() => _saving = false);
+                        Navigator.pop(context);
+                      }
+                    },
+              icon: _saving
+                  ? const SizedBox.square(dimension: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Icon(Icons.save),
+              label: Text(_saving ? 'Updating...' : 'Update profile'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String? _required(String? value) {
+    if (value == null || value.trim().isEmpty) return 'Required';
+    return null;
+  }
+}
+
+class BabyGrowthSnapshot {
+  const BabyGrowthSnapshot({
+    required this.minWeightKg,
+    required this.avgWeightKg,
+    required this.maxWeightKg,
+    required this.minHeightCm,
+    required this.avgHeightCm,
+    required this.maxHeightCm,
+    required this.ageLabel,
+  });
+
+  final double minWeightKg;
+  final double avgWeightKg;
+  final double maxWeightKg;
+  final double minHeightCm;
+  final double avgHeightCm;
+  final double maxHeightCm;
+  final String ageLabel;
+}
+
+class BabyGrowthReference {
+  static const _snapshots = <int, BabyGrowthSnapshot>{
+    0: BabyGrowthSnapshot(
+      minWeightKg: 2.5,
+      avgWeightKg: 3.3,
+      maxWeightKg: 4.4,
+      minHeightCm: 46.0,
+      avgHeightCm: 50.0,
+      maxHeightCm: 54.0,
+      ageLabel: 'newborn',
+    ),
+    3: BabyGrowthSnapshot(
+      minWeightKg: 4.8,
+      avgWeightKg: 6.0,
+      maxWeightKg: 7.6,
+      minHeightCm: 57.0,
+      avgHeightCm: 61.0,
+      maxHeightCm: 65.0,
+      ageLabel: '3 months',
+    ),
+    6: BabyGrowthSnapshot(
+      minWeightKg: 6.4,
+      avgWeightKg: 7.9,
+      maxWeightKg: 9.8,
+      minHeightCm: 63.0,
+      avgHeightCm: 67.0,
+      maxHeightCm: 71.0,
+      ageLabel: '6 months',
+    ),
+    9: BabyGrowthSnapshot(
+      minWeightKg: 7.2,
+      avgWeightKg: 8.9,
+      maxWeightKg: 11.1,
+      minHeightCm: 67.0,
+      avgHeightCm: 72.0,
+      maxHeightCm: 76.0,
+      ageLabel: '9 months',
+    ),
+    12: BabyGrowthSnapshot(
+      minWeightKg: 7.8,
+      avgWeightKg: 9.6,
+      maxWeightKg: 12.0,
+      minHeightCm: 71.0,
+      avgHeightCm: 76.0,
+      maxHeightCm: 81.0,
+      ageLabel: '12 months',
+    ),
+    18: BabyGrowthSnapshot(
+      minWeightKg: 8.8,
+      avgWeightKg: 11.0,
+      maxWeightKg: 13.8,
+      minHeightCm: 76.0,
+      avgHeightCm: 82.0,
+      maxHeightCm: 88.0,
+      ageLabel: '18 months',
+    ),
+    24: BabyGrowthSnapshot(
+      minWeightKg: 9.7,
+      avgWeightKg: 12.3,
+      maxWeightKg: 15.5,
+      minHeightCm: 81.0,
+      avgHeightCm: 87.0,
+      maxHeightCm: 93.0,
+      ageLabel: '24 months',
+    ),
+  };
+
+  static BabyGrowthSnapshot? summaryFor(GrowthProfile profile) {
+    if (profile.ageInMonths > 24) return null;
+    final nearestMonth = _snapshots.keys.reduce(
+      (a, b) => (profile.ageInMonths - a).abs() <= (profile.ageInMonths - b).abs() ? a : b,
+    );
+    return _snapshots[nearestMonth];
+  }
+
+  static Color colorForEntry(GrowthProfile profile, MetricEntry entry) {
+    if (profile.ageInMonths > 24) return Colors.blueGrey;
+    final snapshot = summaryFor(profile);
+    if (snapshot == null) return Colors.blueGrey;
+
+    final weight = entry.weightKg;
+    final height = entry.heightCm;
+    final hasWeight = weight != null;
+    final hasHeight = height != null;
+    if (!hasWeight && !hasHeight) return Colors.blueGrey;
+
+    final outOfRangeWeight = hasWeight && (weight! < snapshot.minWeightKg || weight > snapshot.maxWeightKg);
+    final outOfRangeHeight = hasHeight && (height! < snapshot.minHeightCm || height > snapshot.maxHeightCm);
+    if (outOfRangeWeight || outOfRangeHeight) return Colors.red;
+    return Colors.green;
+  }
+
+  static String explainEntry(GrowthProfile profile, MetricEntry entry) {
+    final snapshot = summaryFor(profile);
+    if (snapshot == null) {
+      return 'Color is neutral because baby growth reference summaries are shown for profiles up to 24 months old.';
+    }
+
+    final weight = entry.weightKg;
+    final height = entry.heightCm;
+    final weightText = weight == null
+        ? 'Weight not provided.'
+        : 'Weight is ${weight.toStringAsFixed(1)} kg; expected range is ${snapshot.minWeightKg.toStringAsFixed(1)}-${snapshot.maxWeightKg.toStringAsFixed(1)} kg.';
+    final heightText = height == null
+        ? 'Height not provided.'
+        : 'Height is ${height.toStringAsFixed(1)} cm; expected range is ${snapshot.minHeightCm.toStringAsFixed(1)}-${snapshot.maxHeightCm.toStringAsFixed(1)} cm.';
+
+    final color = colorForEntry(profile, entry);
+    final reason = color == Colors.red
+        ? 'Marked red because at least one available value is outside the normal range.'
+        : color == Colors.green
+            ? 'Marked green because all available values are within the normal range.'
+            : 'Marked neutral because there is not enough applicable data.';
+
+    return '$reason\n\n$weightText\n$heightText\n\nReference age band: ${snapshot.ageLabel}.';
   }
 }
