@@ -1163,8 +1163,8 @@ class _HeightChartCard extends StatelessWidget {
                                   ),
                                   child: Text(_shortDateFormatter.format(entries[index].date)),
                                 ),
-                              ),
-                            );
+                              );
+                            },
                           },
                         ),
                       ),
