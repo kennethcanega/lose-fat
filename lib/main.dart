@@ -1276,7 +1276,7 @@ class _BabyMonthlyProgressCarouselState extends State<_BabyMonthlyProgressCarous
   }
 }
 
-class _BabyMonthCard extends StatelessWidget {
+class _BabyMonthCard extends StatefulWidget {
   const _BabyMonthCard({
     required this.profile,
     required this.month,
@@ -1288,7 +1288,17 @@ class _BabyMonthCard extends StatelessWidget {
   final bool isCurrentMonth;
 
   @override
+  State<_BabyMonthCard> createState() => _BabyMonthCardState();
+}
+
+class _BabyMonthCardState extends State<_BabyMonthCard> {
+  bool _expanded = false;
+
+  @override
   Widget build(BuildContext context) {
+    final month = widget.month;
+    final profile = widget.profile;
+    final isCurrentMonth = widget.isCurrentMonth;
     final milestone = _milestoneForMonth(month);
     final minWeight = UnitConverter.toDisplayWeight(
       BabyGrowthReference.referenceWeightKgForAge(
@@ -1383,11 +1393,24 @@ class _BabyMonthCard extends StatelessWidget {
             '(${minHeight.toStringAsFixed(1)}-${maxHeight.toStringAsFixed(1)})',
           ),
           const SizedBox(height: 8),
-          Text(
-            'What baby can do: $milestone',
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
+          Expanded(
+            child: SingleChildScrollView(
+              child: Text(
+                milestone,
+                maxLines: _expanded ? null : 4,
+                overflow: _expanded ? TextOverflow.visible : TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
+              ),
+            ),
           ),
-          const Spacer(),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton(
+              onPressed: () => setState(() => _expanded = !_expanded),
+              style: TextButton.styleFrom(padding: EdgeInsets.zero, minimumSize: Size.zero, tapTargetSize: MaterialTapTargetSize.shrinkWrap),
+              child: Text(_expanded ? 'See less' : 'See more'),
+            ),
+          ),
           Text(
             'Expected WHO progress for this month (${profile.gender.label})',
             style: Theme.of(context).textTheme.bodySmall,
@@ -1409,19 +1432,33 @@ class _BabyMonthCard extends StatelessWidget {
 
   String _milestoneForMonth(int month) {
     const milestones = <int, String>{
-      0: 'Can startle, turn head toward sounds, and focus on faces.',
-      1: 'Can briefly lift head during tummy time and track nearby faces.',
-      2: 'Can smile socially and hold head a little steadier.',
-      3: 'Can raise chest while on tummy and follow moving objects.',
-      4: 'Can hold head steady and may roll from tummy to back.',
-      5: 'Can roll both ways and show stronger hand-to-mouth control.',
-      6: 'Can sit with support and respond to own name.',
-      7: 'Can sit briefly without support and transfer toys hand-to-hand.',
-      8: 'Can crawl/creep in some babies and explore objects actively.',
-      9: 'Can pull to stand and use sounds like “mamama/bababa”.',
-      10: 'Can cruise along furniture and use pincer grasp better.',
-      11: 'Can stand with support and imitate simple actions.',
-      12: 'Can take first steps in some babies and follow simple commands.',
+      0:
+          'A quick note: baby development is not a strict schedule. Milestones happen within a normal range, and some skills show up gradually over several weeks, not all at once on a birthday. The guide below is based mainly on the CDC milestone checklists, the American Academy of Pediatrics’ \n\n'
+          'During the newborn stage, babies mostly feed, sleep, cry, and react through built-in reflexes. Common early reflexes include rooting, sucking, grasping, stepping, and the Moro or startle reflex. Neck control is still very limited, so the head needs full support. Vision is best at close range, around 8 to 12 inches, which is just right for looking at a parent’s face during feeding. Newborns usually prefer faces and high-contrast patterns, can hear voices well, recognize some familiar sounds, and may recognize the smell of their mother’s breastmilk. It is also normal for a newborn to lose about 10% to 12% of birth weight at first, then begin gaining again by about 2 weeks.',
+      1:
+          'By the end of the first month, babies are usually more alert and responsive than they were right after birth. Movements are still jerky, but they start bringing their hands closer to their eyes and mouth, may move their head side to side while lying on the stomach, and still often keep their hands in tight fists. They usually focus best on things close to their face, may turn toward familiar voices, and continue to prefer faces and strong visual contrast. You may also notice that they listen when you talk and begin to move in response to your voice or touch.',
+      2:
+          'Around 2 months, babies usually become much more social. Many calm down when spoken to or picked up, look at faces, seem happy when a familiar person comes near, and smile when someone smiles or talks to them. They often make sounds other than crying, react to loud sounds, watch people move, and look at toys for a few seconds. Physically, they can usually hold the head up a bit during tummy time, move both arms and legs, open their hands briefly, and start bringing their hands toward the mouth more often.',
+      3:
+          'At 3 months, babies usually look much more active and intentional. Many can raise the head and chest when lying on the stomach, support the upper body with the arms, kick strongly, open and close the hands, bring a hand to the mouth, swipe at dangling objects, and grasp or shake a toy placed in the hand. They often watch faces closely, follow moving objects, recognize familiar people or objects at a distance, smile socially, enjoy play, babble, imitate some sounds, and turn toward sound. A lot of the newborn reflex-driven movement begins fading as more voluntary control appears.',
+      4:
+          'By 4 months, babies often smile on purpose to get attention and may chuckle when someone plays with them. They usually coo, make sounds back and forth with caregivers, and turn toward the sound of a familiar voice. Many are also more aware of feeding cues, such as opening the mouth when seeing the breast or bottle, and they often study their hands with real interest. Motor control improves too: head control becomes steadier, they may hold a toy when it is placed in the hand, swing at toys, bring hands to the mouth, and push up on the forearms during tummy time. At this age, babies also begin learning simple cause and effect, like noticing that kicking, shaking, or waving can make something happen.',
+      5:
+          'At about 5 months, many babies are in the middle of a big movement and learning jump. They are often pushing up higher on the arms, arching the back to lift the chest, rocking on the stomach, kicking hard, and making “swimming” motions with the arms and legs that help prepare them for rolling and crawling. Hand control gets better, so they bring objects to the mouth more easily and keep experimenting with how things feel, sound, and move. Socially, many become more expressive, more eager to reach and touch things, and more likely to laugh, babble, and demand help when they want something.',
+      6:
+          'By 6 months, many babies know familiar people, enjoy looking at themselves in a mirror, and laugh openly. They often take turns making sounds with a caregiver, blow raspberries, and make squeals. Exploration becomes more active: they put objects in the mouth, reach for wanted toys, and may close the lips to show they do not want more food. Physically, many roll from tummy to back, push up with straight arms during tummy time, and lean on their hands for support while sitting.',
+      7:
+          'At 7 months, many babies roll both ways, sit with less help and sometimes without hand support for short periods, bear weight through the legs when supported, reach with one hand, transfer objects from one hand to the other, and use a raking grasp instead of a true pincer grasp. Vision also sharpens, including better tracking of moving objects and fuller color vision. Language and social skills usually move forward too: many respond to their name, begin to react to “no,” babble strings of consonants, enjoy social play, look at mirror images with interest, and start searching for partly hidden objects.',
+      8:
+          'Around 8 months, babies often become much more mobile and curious. Many can sit without support, flip over quickly, and begin crawling, scooting, slithering, or rocking on hands and knees. Some never crawl in the usual way, and that can still be normal if both sides of the body are used well. Cognitively, this is a busy age: many babies love dropping, throwing, rolling, and waving objects to see what happens, and they begin understanding that objects still exist when hidden. For example, they may lift a scarf to look for a toy underneath. Communication also grows: many use pointing, reaching, crawling, or gestures to show what they want, while babble begins sounding more like real syllables such as “ba,” “da,” and “ma.” Socially, stranger anxiety and separation anxiety often begin to show up around this time.',
+      9:
+          'By 9 months, babies often show clearer emotions and stronger attachment. Many are shy, clingy, or fearful with strangers, react when a caregiver leaves, look when their name is called, and smile or laugh during peek-a-boo. They often make repeated sounds like “mamamama” or “bababababa” and lift their arms to be picked up. Problem-solving and hand use improve too: they may look for objects that fall out of sight, bang two objects together, move into a sitting position by themselves, sit without support, transfer items between hands, and rake food toward themselves with the fingers.',
+      10:
+          'At 10 months, many babies are more persistent and purposeful. Object permanence is usually much stronger by now, so they may keep searching for a hidden toy even after it has been moved. Many have already learned to crawl sometime between 7 and 10 months, while others may still scoot or slither. Their babbling often becomes more patterned, and they may use familiar sound combinations more often while understanding more of what adults say. Separation anxiety can also feel stronger at this stage, and the American Academy of Pediatrics notes that it commonly peaks sometime between 10 and 18 months.',
+      11:
+          'As babies near their first birthday, many are practicing late first-year skills even if they have not fully mastered them yet. Common things you may see include pulling up, moving along furniture, picking up tiny bits of food more neatly with the thumb and finger, understanding simple words better, and using gestures like pointing or waving. Some may say sounds like “mama” more intentionally, while others are still mostly communicating through gestures, babble, and facial expression. Movement is usually constant at this age, and many babies are eager to explore while repeatedly checking back with a parent for security. This month is best understood as a “working toward 1-year milestones” stage rather than a clean cutoff.',
+      12:
+          'By 12 months, many babies play simple games like pat-a-cake, wave bye-bye, call a parent “mama” or “dada” or another special name, and understand “no.” Many can put an object into a container, look for hidden items, pull to stand, cruise while holding furniture, drink from a cup when helped, and pick up tiny objects with a thumb-and-finger pincer grasp. MedlinePlus also notes that a typical 12-month-old may stand without holding on, walk alone or while holding one hand, sit down without help, bang two blocks together, turn thick pages in a book, point with the index finger, begin pretend play, follow simple commands, and say one or two additional words. Growth-wise, many 12-month-olds are about triple their birth weight.',
     };
     return milestones[month] ?? 'Can keep developing movement, language, and social interaction skills.';
   }
