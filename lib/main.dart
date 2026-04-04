@@ -1174,8 +1174,10 @@ class _BabyMonthlyProgressCarousel extends StatefulWidget {
 class _BabyMonthlyProgressCarouselState extends State<_BabyMonthlyProgressCarousel> {
   late final PageController _pageController;
   late int _selectedMonth;
+  final Map<int, bool> _expandedByMonth = {};
 
   int get _currentMonth => widget.profile.ageInMonths.clamp(0, 12);
+  bool get _isSelectedMonthExpanded => _expandedByMonth[_selectedMonth] ?? false;
 
   @override
   void initState() {
@@ -1222,8 +1224,10 @@ class _BabyMonthlyProgressCarouselState extends State<_BabyMonthlyProgressCarous
           style: Theme.of(context).textTheme.bodySmall,
         ),
         const SizedBox(height: 8),
-        SizedBox(
-          height: 186,
+        AnimatedContainer(
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeInOut,
+          height: _isSelectedMonthExpanded ? 360 : 220,
           child: PageView.builder(
             controller: _pageController,
             itemCount: 13,
@@ -1236,6 +1240,10 @@ class _BabyMonthlyProgressCarouselState extends State<_BabyMonthlyProgressCarous
                   profile: widget.profile,
                   month: month,
                   isCurrentMonth: isCurrent,
+                  expanded: _expandedByMonth[month] ?? false,
+                  onExpandedChanged: (value) {
+                    setState(() => _expandedByMonth[month] = value);
+                  },
                 ),
               );
             },
@@ -1281,19 +1289,21 @@ class _BabyMonthCard extends StatefulWidget {
     required this.profile,
     required this.month,
     required this.isCurrentMonth,
+    required this.expanded,
+    required this.onExpandedChanged,
   });
 
   final GrowthProfile profile;
   final int month;
   final bool isCurrentMonth;
+  final bool expanded;
+  final ValueChanged<bool> onExpandedChanged;
 
   @override
   State<_BabyMonthCard> createState() => _BabyMonthCardState();
 }
 
 class _BabyMonthCardState extends State<_BabyMonthCard> {
-  bool _expanded = false;
-
   @override
   Widget build(BuildContext context) {
     final month = widget.month;
@@ -1393,22 +1403,18 @@ class _BabyMonthCardState extends State<_BabyMonthCard> {
             '(${minHeight.toStringAsFixed(1)}-${maxHeight.toStringAsFixed(1)})',
           ),
           const SizedBox(height: 8),
-          Expanded(
-            child: SingleChildScrollView(
-              child: Text(
-                milestone,
-                maxLines: _expanded ? null : 4,
-                overflow: _expanded ? TextOverflow.visible : TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
-              ),
-            ),
+          Text(
+            milestone,
+            maxLines: widget.expanded ? null : 4,
+            overflow: widget.expanded ? TextOverflow.visible : TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
           ),
           Align(
             alignment: Alignment.centerLeft,
             child: TextButton(
-              onPressed: () => setState(() => _expanded = !_expanded),
+              onPressed: () => widget.onExpandedChanged(!widget.expanded),
               style: TextButton.styleFrom(padding: EdgeInsets.zero, minimumSize: Size.zero, tapTargetSize: MaterialTapTargetSize.shrinkWrap),
-              child: Text(_expanded ? 'See less' : 'See more'),
+              child: Text(widget.expanded ? 'See less' : 'See more'),
             ),
           ),
           Text(
