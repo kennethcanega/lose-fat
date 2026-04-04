@@ -1227,7 +1227,7 @@ class _BabyMonthlyProgressCarouselState extends State<_BabyMonthlyProgressCarous
         AnimatedContainer(
           duration: const Duration(milliseconds: 220),
           curve: Curves.easeInOut,
-          height: _isSelectedMonthExpanded ? 360 : 220,
+          height: _isSelectedMonthExpanded ? 520 : 280,
           child: PageView.builder(
             controller: _pageController,
             itemCount: 13,
@@ -1403,12 +1403,26 @@ class _BabyMonthCardState extends State<_BabyMonthCard> {
             '(${minHeight.toStringAsFixed(1)}-${maxHeight.toStringAsFixed(1)})',
           ),
           const SizedBox(height: 8),
-          Text(
-            milestone,
-            maxLines: widget.expanded ? null : 4,
-            overflow: widget.expanded ? TextOverflow.visible : TextOverflow.ellipsis,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
-          ),
+          if (widget.expanded)
+            SizedBox(
+              height: 200,
+              child: Scrollbar(
+                thumbVisibility: true,
+                child: SingleChildScrollView(
+                  child: Text(
+                    milestone,
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
+                  ),
+                ),
+              ),
+            )
+          else
+            Text(
+              milestone,
+              maxLines: 4,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
+            ),
           Align(
             alignment: Alignment.centerLeft,
             child: TextButton(
